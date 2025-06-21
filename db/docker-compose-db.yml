@@ -1,0 +1,14 @@
+version: "3.9"
+
+services:
+  db:
+    build: .
+    container_name: finance_db
+    volumes:
+      - finance_db_data:/data
+      - ./init.sql:/app/init.sql:ro
+      - ./init_db.py:/app/init_db.py:ro
+    restart: unless-stopped
+
+volumes:
+  finance_db_data:
