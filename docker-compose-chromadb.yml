@@ -1,0 +1,13 @@
+services:
+  chromadb:
+    image: chromadb/chroma
+    ports:
+      - "8008:8000"
+    volumes:
+      - ./chromadb/vector_store:/chroma/chroma
+    networks:
+      - finance_net
+
+networks:
+  finance_net:
+    external: true

@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  ollama:
+    build: ./ollama
+    ports:
+      - "5000:5000"
+    volumes:
+      - /mnt/c/Users/YourUser/AppData/Local/Ollama:/ollama-host:ro
+    environment:
+      - PATH=/ollama-host:$PATH

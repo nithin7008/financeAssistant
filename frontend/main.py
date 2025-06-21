@@ -3,39 +3,57 @@ import requests
 
 BACKEND_URL = "http://backend:8000"
 
-st.sidebar.title("Choose Action")
-option = st.sidebar.radio("Choose an action", ["📋 View MySQL Tables", "📤 Upload File"])
+def get_sql_from_backend(nl_query: str):
+    response = requests.post(f"{BACKEND_URL}/query", json={"question": nl_query})
+    if response.status_code == 200:
+        return response.json().get("sql", "")
+    else:
+        st.error("Failed to generate SQL")
+        return ""
 
-if option == "📋 View MySQL Tables":
-    st.title("📋 MySQL Table Viewer")
+def run_sql_query(sql: str):
+    response = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": sql})
+    if response.status_code == 200:
+        json_resp = response.json()
+        return json_resp.get("columns", []), json_resp.get("data", [])
+    else:
+        st.error("Failed to run SQL")
+        return [], []
 
-    try:
-        res = requests.get(f"{BACKEND_URL}/tables")
-        res.raise_for_status()
-        tables = res.json()["tables"]
+st.title("AI Text-to-SQL Finance Assistant")
 
-        selected_table = st.selectbox("Select a table", tables)
+nl_query = st.text_input("Ask a question about your finances:")
 
-        if selected_table:
-            table_res = requests.get(f"{BACKEND_URL}/table/{selected_table}")
-            table_res.raise_for_status()
-            data = table_res.json()
-            st.dataframe(data["data"])
+if nl_query:
+    generated_sql = get_sql_from_backend(nl_query)
+    st.markdown("### Generated SQL:")
+    st.code(generated_sql)
 
-    except Exception as e:
-        st.error(f"❌ Error: {e}")
+    col1, col2 = st.columns(2)
 
-elif option == "📤 Upload File":
-    st.title("📤 Upload a File into Container")
+    with col1:
+        if st.button("Good"):
+            columns, data = run_sql_query(generated_sql)
+            st.markdown("### Query Results:")
+            if columns and data:
+                st.dataframe(data)
+            else:
+                st.write("No results to display")
 
-    uploaded_file = st.file_uploader("Choose a file to upload", type=["csv", "txt", "sql", "json", "xlsx"])
+    # Manage 'Bad' button state
+    if 'bad_clicked' not in st.session_state:
+        st.session_state.bad_clicked = False
 
-    if uploaded_file is not None:
-        files = {"file": (uploaded_file.name, uploaded_file.getvalue())}
-        try:
-            upload_res = requests.post(f"{BACKEND_URL}/upload", files=files)
-            upload_res.raise_for_status()
-            msg = upload_res.json().get("message", "Upload succeeded")
-            st.success(f"✅ {msg}")
-        except Exception as e:
-            st.error(f"❌ Upload failed: {e}")
+    with col2:
+        if st.button("Bad"):
+            st.session_state.bad_clicked = True
+
+    if st.session_state.bad_clicked:
+        edited_sql = st.text_area("Edit SQL:", value=generated_sql)
+        if st.button("Run Edited SQL"):
+            columns, data = run_sql_query(edited_sql)
+            st.markdown("### Query Results:")
+            if columns and data:
+                st.dataframe(data)
+            else:
+                st.write("No results to display")

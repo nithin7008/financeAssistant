@@ -5,3 +5,4 @@ sqlalchemy
 pymysql
 python-multipart
 cryptography
+requests
