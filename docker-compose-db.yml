@@ -1,18 +1,18 @@
-version: "3.9"
 services:
   db:
-    build:
-      context: ./db
-    container_name: finance_db
+    image: mysql:8
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: testdb
       MYSQL_USER: user
       MYSQL_PASSWORD: password
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
       - "3306:3306"
-    volumes:
-      - finance_db_data:/var/lib/mysql
+    networks:
+      - finance_net
 
-volumes:
-  finance_db_data:
+networks:
+  finance_net:
+    external: true

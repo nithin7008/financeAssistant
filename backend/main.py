@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
+import numpy as np  # Added for handling NaN and inf
 from sqlalchemy import create_engine
 import os
 import shutil
@@ -39,6 +40,7 @@ def get_tables():
 def get_table_data(table_name: str):
     try:
         df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
+        df = df.replace({np.nan: None, np.inf: None, -np.inf: None})  # ✅ Sanitize invalid floats
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

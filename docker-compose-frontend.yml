@@ -1,0 +1,12 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "8501:8501"
+    networks:
+      - finance_net
+
+networks:
+  finance_net:
+    external: true

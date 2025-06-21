@@ -1,10 +1,10 @@
 import streamlit as st
 import requests
 
-BACKEND_URL = "http://localhost:8000"  # Adjust if backend is remote
+BACKEND_URL = "http://backend:8000"
 
 st.sidebar.title("Choose Action")
-option = st.sidebar.radio("", ["📋 View MySQL Tables", "📤 Upload File"])
+option = st.sidebar.radio("Choose an action", ["📋 View MySQL Tables", "📤 Upload File"])
 
 if option == "📋 View MySQL Tables":
     st.title("📋 MySQL Table Viewer")
