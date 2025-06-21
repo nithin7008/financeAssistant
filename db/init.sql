@@ -1,29 +1,22 @@
 CREATE TABLE accounts (
     bank VARCHAR(100) NOT NULL,
-    type ENUM('credit', 'checking', 'stocks', 'crypto') NOT NULL,
+    type TEXT NOT NULL,
     apr DECIMAL(5,2),
     credit_limit INTEGER,
     due_date_day INTEGER,
-    PRIMARY KEY (bank, type),
-    CONSTRAINT valid_fields CHECK (
-        (type = 'credit' AND apr IS NOT NULL AND credit_limit IS NOT NULL AND due_date_day IS NOT NULL)
-     OR (type IN ('checking', 'stocks', 'crypto') AND apr IS NULL AND credit_limit IS NULL AND due_date_day IS NULL)
-    )
+    PRIMARY KEY (bank, type)
 );
-
 
 CREATE TABLE account_weekly_snapshot (
     bank VARCHAR(100) NOT NULL,
-    type ENUM('credit', 'checking', 'stocks', 'crypto') NOT NULL,
+    type TEXT NOT NULL,
     balance DECIMAL(10,2) NOT NULL,
     payment_due DECIMAL(10,2) NOT NULL,
-    last_updated_date DATE NOT NULL,
-    PRIMARY KEY (bank, type, last_updated_date),
-    FOREIGN KEY (bank, type) REFERENCES accounts(bank, type) ON DELETE CASCADE
+    last_updated_date TEXT NOT NULL,
+    PRIMARY KEY (bank, type, last_updated_date)
 );
 
--- Credit accounts
-INSERT IGNORE INTO accounts (bank, type, apr, credit_limit, due_date_day) VALUES
+INSERT OR IGNORE INTO accounts (bank, type, apr, credit_limit, due_date_day) VALUES
 ('Citi', 'credit', 21.99, 6000, 7),
 ('Chase', 'credit', 21.00, 29100, 11),
 ('Affirm', 'credit', 0.00, 600, 12),
@@ -49,9 +42,7 @@ INSERT IGNORE INTO accounts (bank, type, apr, credit_limit, due_date_day) VALUES
 ('Webull', 'stocks', NULL, NULL, NULL),
 ('401kM', 'stocks', NULL, NULL, NULL);
 
-
 INSERT INTO account_weekly_snapshot (bank, type, balance, payment_due, last_updated_date) VALUES
--- Credit accounts
 ('Citi', 'credit', 1780.00, 20.00, '2025-06-20'),
 ('Chase', 'credit', 1743.54, 1100.00, '2025-06-20'),
 ('Affirm', 'credit', 500.49, 27.81, '2025-06-20'),
@@ -62,14 +53,12 @@ INSERT INTO account_weekly_snapshot (bank, type, balance, payment_due, last_upda
 ('BofaRed', 'credit', 241.90, 0.00, '2025-06-20'),
 ('DCU', 'credit', 38.06, 0.00, '2025-06-20'),
 
--- Checking accounts
 ('CapitalOne', 'checking', 500.00, 0.00, '2025-06-20'),
 ('Bofa', 'checking', 4557.74, 0.00, '2025-06-20'),
 ('DCU', 'checking', 264.42, 0.00, '2025-06-20'),
 ('ChaseM', 'checking', 300.00, 0.00, '2025-06-20'),
 ('Chase', 'checking', 153.76, 0.00, '2025-06-20'),
 
--- Investment accounts (stocks, crypto, 401k, HSA)
 ('HSA', 'stocks', 5738.01, 0.00, '2025-06-20'),
 ('Schwab', 'stocks', 9494.98, 0.00, '2025-06-20'),
 ('Coinbase', 'crypto', 37230.71, 0.00, '2025-06-20'),
@@ -80,4 +69,3 @@ INSERT INTO account_weekly_snapshot (bank, type, balance, payment_due, last_upda
 ('CGI', 'stocks', 8276.86, 0.00, '2025-06-20'),
 ('Webull', 'stocks', 16.00, 0.00, '2025-06-20'),
 ('401kM', 'stocks', 2922.05, 0.00, '2025-06-20');
-

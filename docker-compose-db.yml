@@ -1,0 +1,18 @@
+version: "3.9"
+services:
+  db:
+    build:
+      context: ./db
+    container_name: finance_db
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: testdb
+      MYSQL_USER: user
+      MYSQL_PASSWORD: password
+    ports:
+      - "3306:3306"
+    volumes:
+      - finance_db_data:/var/lib/mysql
+
+volumes:
+  finance_db_data:

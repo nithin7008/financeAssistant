@@ -7,11 +7,11 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy app files
+# Copy app code
 COPY . .
 
-# Expose port
-EXPOSE 8000
+# Expose Streamlit port
+EXPOSE 8501
 
-# Run the FastAPI app with uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the Streamlit app
+CMD ["streamlit", "run", "main.py", "--server.port=8501", "--server.address=0.0.0.0"]
