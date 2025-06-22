@@ -6,4 +6,5 @@ pymysql
 python-multipart
 cryptography
 requests
-dotenv
+python-dotenv
+numpy

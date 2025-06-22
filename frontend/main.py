@@ -1,105 +1,140 @@
 import streamlit as st
+import pandas as pd
 import requests
+from datetime import date
 
-# App Config
-st.set_page_config(layout="wide", page_title="Finance Assistant", page_icon="💸")
 BACKEND_URL = "http://backend:8000"
 
-# --- State ---
-if "mode" not in st.session_state:
-    st.session_state.mode = "input"
-if "edited_sql" not in st.session_state:
-    st.session_state.edited_sql = ""
-if "last_question" not in st.session_state:
-    st.session_state.last_question = ""
-if "developer_mode" not in st.session_state:
-    st.session_state.developer_mode = False
-if "notebook_sql" not in st.session_state:
-    st.session_state.notebook_sql = ""
-if "notebook_result" not in st.session_state:
-    st.session_state.notebook_result = {}
+# Initialize session state
+if "page" not in st.session_state:
+    st.session_state.page = "home"
 
-# --- Title Row with Developer Mode Icon ---
-col_title, col_icon = st.columns([8, 1])
-with col_title:
-    st.markdown("<h1 style='color:#3e8ed0;'>AI Text-to-SQL Finance Assistant</h1>", unsafe_allow_html=True)
-with col_icon:
-    if st.button("🛠️", help="Toggle Developer Mode"):
-        st.session_state.developer_mode = not st.session_state.get("developer_mode", False)
+# --- Navigation Icons ---
+col1, col2, col3, col4 = st.columns([0.9, 0.05, 0.05, 0.05])
+with col1:
+    st.title("💰 AI Text-to-SQL Finance Assistant")
+with col2:
+    if st.button("🏠", help="Home"):
+        st.session_state.page = "home"
+with col3:
+    if st.button("📊", help="Admin Console"):
+        st.session_state.page = "admin"
+with col4:
+    if st.button("🧪", help="Developer Mode"):
+        st.session_state.page = "developer"
 
+# --- HOME PAGE ---
+if st.session_state.page == "home":
+    if "mode" not in st.session_state:
+        st.session_state.mode = "input"
+    if "edited_sql" not in st.session_state:
+        st.session_state.edited_sql = ""
 
-# --- Main Title ---
-# st.markdown("<h1 style='color:#3e8ed0;'>AI Text-to-SQL Finance Assistant</h1>", unsafe_allow_html=True)
-st.markdown("Ask questions like: *'What is my current credit card balance?'*")
+    nl_query = st.text_input("Ask a question about your finances:")
 
-# --- Input ---
-nl_query = st.text_input("💬 Your Question:", placeholder="e.g., How much did I invest last month?")
+    if nl_query:
+        response = requests.post(f"{BACKEND_URL}/query", json={"question": nl_query})
+        if response.status_code == 200:
+            generated_sql = response.json().get("sql", "")
+            st.markdown("### Generated SQL:")
+            st.code(generated_sql)
+        else:
+            st.error("Failed to generate SQL")
+            generated_sql = ""
 
-# Reset edit box if question changes
-if nl_query and nl_query != st.session_state.last_question:
-    st.session_state.mode = "input"
-    st.session_state.last_question = nl_query
+        col1, col2 = st.columns(2)
 
-if nl_query:
-    response = requests.post(f"{BACKEND_URL}/query", json={"question": nl_query})
-    if response.status_code == 200:
-        generated_sql = response.json().get("sql", "")
-        with st.expander("🛠️ Generated SQL", expanded=True):
-            st.code(generated_sql, language="sql")
-    else:
-        st.error("❌ Failed to generate SQL")
-        generated_sql = ""
+        with col1:
+            if st.button("Good"):
+                result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
+                if result.status_code == 200:
+                    data = result.json()
+                    st.markdown("### Query Results:")
+                    st.write(data)
+                    requests.post(f"{BACKEND_URL}/feedback", json={
+                        "question": nl_query,
+                        "generated_sql": generated_sql,
+                        "corrected_sql": generated_sql,
+                        "feedback": "good"
+                    })
+                    st.success("Feedback saved!")
+                    st.session_state.mode = "input"
+                else:
+                    st.error("SQL Execution failed")
 
-    # --- Feedback Buttons ---
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Good", use_container_width=True):
-            result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
-            if result.status_code == 200:
-                data = result.json()
-                st.success("Feedback saved!")
-                st.markdown("### 📊 Query Results")
-                st.dataframe(data["data"])
-                requests.post(f"{BACKEND_URL}/feedback", json={
-                    "question": nl_query,
-                    "generated_sql": generated_sql,
-                    "corrected_sql": generated_sql,
-                    "feedback": "good"
-                })
-                st.session_state.mode = "input"
+        with col2:
+            if st.session_state.mode != "bad" and st.button("Bad"):
+                st.session_state.mode = "bad"
+                st.session_state.edited_sql = generated_sql
+
+        if st.session_state.mode == "bad":
+            st.session_state.edited_sql = st.text_area("Edit SQL:", value=st.session_state.edited_sql)
+
+            if st.button("Run Edited SQL"):
+                result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.edited_sql})
+                if result.status_code == 200:
+                    data = result.json()
+                    st.markdown("### Query Results:")
+                    st.write(data)
+                    requests.post(f"{BACKEND_URL}/feedback", json={
+                        "question": nl_query,
+                        "generated_sql": generated_sql,
+                        "corrected_sql": st.session_state.edited_sql,
+                        "feedback": "bad"
+                    })
+                    st.success("Feedback saved!")
+                    st.session_state.mode = "input"
+                else:
+                    st.error("SQL Execution failed")
+
+elif st.session_state.page == "admin":
+    st.header("📊 Weekly Snapshot Editor")
+
+    # Load existing snapshot file
+    snapshot_df = pd.read_excel("db/account_weekly_snapshot.xlsx")
+    snapshot_df.columns = snapshot_df.columns.str.strip().str.lower()
+    snapshot_df = snapshot_df.sort_values(by=["type", "bank"])
+
+    # Get unique (bank, type) pairs
+    bank_type_pairs = list(snapshot_df[["bank", "type"]].drop_duplicates().itertuples(index=False, name=None))
+
+    st.markdown("### Add or Update Weekly Snapshot")
+    today = date.today()
+
+    # Create editable dataframe with columns and pre-filled bank/type from pairs
+    editable_df = pd.DataFrame({
+        "bank": [bt[0] for bt in bank_type_pairs],
+        "type": [bt[1] for bt in bank_type_pairs],
+        "balance": [None] * len(bank_type_pairs),
+        "payment_due": [None] * len(bank_type_pairs),
+        "last_updated_date": [today] * len(bank_type_pairs),
+    })
+
+    edited_rows = st.data_editor(
+        editable_df,
+        num_rows="dynamic",
+        disabled=["bank", "type", "last_updated_date"],
+        use_container_width=True,
+        key="weekly_snapshot_editor"
+    )
+
+    if st.button("📥 Submit Snapshot Data"):
+        try:
+            # Drop blank rows and append to existing file and DB
+            new_rows = pd.DataFrame(edited_rows)
+            new_rows = new_rows.dropna(subset=["balance", "payment_due"], how="all")
+            if not new_rows.empty:
+                updated_df = pd.concat([snapshot_df, new_rows], ignore_index=True)
+                updated_df.to_excel("db/account_weekly_snapshot.xlsx", index=False)
+                st.success("Snapshot data saved successfully!")
             else:
-                st.error("❌ SQL Execution failed")
+                st.warning("No valid rows to save.")
+        except Exception as e:
+            st.error(f"Error saving data: {str(e)}")
 
-    with col2:
-        if st.session_state.mode != "bad" and st.button("❌ Bad", use_container_width=True):
-            st.session_state.mode = "bad"
-            st.session_state.edited_sql = generated_sql
-
-    # --- Edit SQL if Bad ---
-    if st.session_state.mode == "bad":
-        st.markdown("### ✏️ Edit SQL")
-        st.session_state.edited_sql = st.text_area("Modify the SQL below and re-run:", value=st.session_state.edited_sql, height=150)
-
-        if st.button("🚀 Run Edited SQL", type="primary"):
-            result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.edited_sql})
-            if result.status_code == 200:
-                data = result.json()
-                st.markdown("### 📊 Edited Query Results")
-                st.dataframe(data["data"])
-                requests.post(f"{BACKEND_URL}/feedback", json={
-                    "question": nl_query,
-                    "generated_sql": generated_sql,
-                    "corrected_sql": st.session_state.edited_sql,
-                    "feedback": "bad"
-                })
-                st.success("Feedback saved!")
-                st.session_state.mode = "input"
-            else:
-                st.error("❌ SQL Execution failed")
-
-# --- Developer Mode Section ---
-if st.session_state.developer_mode:
-    st.markdown("## 🧪 Developer Notebook")
+# --- DEVELOPER PAGE ---
+elif st.session_state.page == "developer":
+    st.header("🧪 Developer Notebook")
 
     col_dev1, col_dev2 = st.columns([2, 3])
     with col_dev1:
@@ -113,15 +148,13 @@ if st.session_state.developer_mode:
                 st.session_state.notebook_result = {"error": result.text}
 
     with col_dev2:
-        if st.session_state.notebook_result:
+        if st.session_state.get("notebook_result"):
             st.markdown("### 📄 Notebook Output")
             if "data" in st.session_state.notebook_result:
                 st.dataframe(st.session_state.notebook_result["data"])
-                # Show "Use This SQL" button only when mode is 'bad'
                 if st.session_state.mode == "bad":
                     if st.button("📋 Use This SQL"):
                         st.session_state.edited_sql = st.session_state.notebook_sql
                         st.success("Copied to Edit SQL")
             else:
                 st.error(st.session_state.notebook_result.get("error", "Unknown error"))
-

@@ -4,6 +4,8 @@ services:
       context: ./frontend
     ports:
       - "8501:8501"
+    volumes:
+      - /c/Users/nithi/OneDrive/Documents/AI/financeAssistant/db:/app/db
     networks:
       - finance_net
 

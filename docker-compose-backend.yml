@@ -11,6 +11,8 @@ services:
       DB_USER: user
       DB_PASS: password
       DB_NAME: testdb
+    volumes:
+      - /c/Users/nithi/OneDrive/Documents/AI/financeAssistant/db:/app/db
 
 networks:
   finance_net:

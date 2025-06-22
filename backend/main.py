@@ -1,17 +1,19 @@
+import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine
-import os
 import shutil
 import subprocess
 import requests
 import re
 from dotenv import load_dotenv
+from datetime import date
 
-
+# Load environment variables from .env file
 load_dotenv()
 app = FastAPI()
 
@@ -23,6 +25,9 @@ port = os.getenv("DB_PORT")
 user = os.getenv("DB_USER")
 password = os.getenv("DB_PASSWORD")
 database = os.getenv("DB_NAME")
+
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 # Allow CORS for frontend (adjust origins as needed)
@@ -36,6 +41,36 @@ app.add_middleware(
 # Database config
 engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
 
+
+def load_accounts_from_excel(filepath: str):
+    df = pd.read_excel(filepath)
+    df = df.where(pd.notnull(df), None)
+    df.to_sql("accounts", con=engine, if_exists="replace", index=False)
+
+def load_account_snapshots_from_excel(filepath: str):
+    df = pd.read_excel(filepath)
+    df = df.where(pd.notnull(df), None)
+    df.to_sql("account_weekly_snapshot", con=engine, if_exists="replace", index=False)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        load_accounts_from_excel("db/accounts.xlsx")
+        load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
+        print("Loaded initial Excel data into DB")
+    except Exception as e:
+        print(f"Failed to load initial Excel data: {e}")
+    yield
+
+app = FastAPI(lifespan=lifespan)
+
+# Re-apply middleware since app was redefined
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/tables")
 def get_tables():
@@ -56,17 +91,15 @@ def get_table_data(table_name: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- File upload functionality ----------
-# UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
-# os.makedirs(UPLOAD_DIR, exist_ok=True)
-# @app.post("/upload")
-# async def upload_file(file: UploadFile = File(...)):
-#     save_path = os.path.join(UPLOAD_DIR, file.filename)
-#     try:
-#         with open(save_path, "wb") as buffer:
-#             shutil.copyfileobj(file.file, buffer)
-#         return {"message": f"File '{file.filename}' uploaded successfully.", "path": save_path}
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=str(e))
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    save_path = os.path.join(UPLOAD_DIR, file.filename)
+    try:
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        return {"message": f"File '{file.filename}' uploaded successfully.", "path": save_path}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- AI-powered SQL generation ----------
 class QueryRequest(BaseModel):
@@ -98,7 +131,6 @@ def call_ollama(prompt: str) -> str:
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
     nl_query = request.question
-
     try:
         response = requests.post(
             OLLAMA_API_URL,
@@ -111,12 +143,10 @@ async def query_to_sql(request: QueryRequest):
         response.raise_for_status()
         full_response = response.json()["response"]
 
-        # Try to extract SQL from triple backticks (```sql ... ```)
         code_block = re.search(r"```(?:sql)?\s*(.*?)```", full_response, re.DOTALL)
         if code_block:
             generated_sql = code_block.group(1).strip()
         else:
-            # Fall back: find first SELECT ... ; statement
             fallback = re.search(r"(SELECT\s.+?;)", full_response, re.IGNORECASE | re.DOTALL)
             if fallback:
                 generated_sql = fallback.group(1).strip()
@@ -128,7 +158,6 @@ async def query_to_sql(request: QueryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Model error: {str(e)}")
 
-
 # ---------- SQL Execution ----------
 class SQLQueryRequest(BaseModel):
     sql: str
@@ -136,9 +165,10 @@ class SQLQueryRequest(BaseModel):
 @app.post("/execute_sql")
 async def execute_sql(query: SQLQueryRequest):
     try:
-        sql_lower = query.sql.lower()  # Convert SQL to lowercase
+        sql_lower = query.sql.lower()
         df = pd.read_sql(sql_lower, engine)
         df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
+
