@@ -3,60 +3,90 @@
     "id": "rule_debt_calculation",
     "category": "debt_calculation",
     "type": "sql_rule",
-    "document": "For credit card debt calculation, use SUM(balance) WHERE type = 'credit'. Credit card balances represent debt owed."
+    "document": "For credit card debt calculation, use SUM(balance) WHERE type = 'credit'. Credit card balances represent debt owed. Always use latest data per bank."
   },
   {
     "id": "rule_credit_calculation",
     "category": "credit_calculation",
     "type": "sql_rule",
-    "document": "For available credit calculation, use SUM(credit_limit - balance) WHERE type = 'credit'."
+    "document": "For available credit calculation, use SUM(credit_limit - balance) WHERE type = 'credit'. Join with accounts table to get credit_limit values."
   },
   {
     "id": "rule_cash_calculation",
     "category": "cash_calculation",
     "type": "sql_rule",
-    "document": "For total checking balance, use SUM(balance) WHERE type = 'checking'."
+    "document": "For total checking balance, use SUM(balance) WHERE type = 'checking'. This represents liquid cash available."
   },
   {
     "id": "rule_investment_calculation",
     "category": "investment_calculation",
     "type": "sql_rule",
-    "document": "For investment portfolio value, use SUM(balance) WHERE type IN ('stocks', 'crypto')."
+    "document": "For investment portfolio value, use SUM(balance) WHERE type IN ('stocks', 'crypto'). Stocks include 401K, brokerage accounts. Crypto includes all cryptocurrency holdings."
   },
   {
     "id": "rule_join_pattern",
     "category": "join_pattern",
     "type": "sql_rule",
-    "document": "Always join accounts and account_weekly_snapshot on (bank, type) when you need both account details and current balances."
+    "document": "Always join accounts and account_weekly_snapshot on (bank, type) when you need both account details and current balances. Use: FROM account_weekly_snapshot aws JOIN accounts a ON aws.bank = a.bank AND aws.type = a.type"
   },
   {
-    "id": "rule_date_filtering_latest",
+    "id": "rule_date_filtering_latest_per_bank",
     "category": "date_filtering",
     "type": "sql_rule",
-    "document": "Use the latest date in account_weekly_snapshot for current balances: WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)"
+    "document": "CRITICAL: Use latest data per bank/type combination since updates happen at different times. Always use: WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type). Never use global MAX date."
+  },
+  {
+    "id": "rule_date_filtering_global",
+    "category": "date_filtering",
+    "type": "sql_rule",
+    "document": "DEPRECATED: Do NOT use global latest date WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot) as this will miss data from banks updated at different times."
   },
   {
     "id": "rule_utilization_calculation",
     "category": "utilization_calculation",
     "type": "sql_rule",
-    "document": "For credit utilization, calculate (balance / credit_limit) * 100 for each credit account."
+    "document": "For credit utilization, calculate ROUND((aws.balance / a.credit_limit) * 100, 2) for each credit account. Join account_weekly_snapshot with accounts table to get credit_limit."
   },
   {
     "id": "rule_payment_calculation",
     "category": "payment_calculation",
     "type": "sql_rule",
-    "document": "Payment due amounts are in the payment_due column, not calculated from balance."
+    "document": "Payment due amounts are in the payment_due column. Use SUM(payment_due) WHERE payment_due > 0 to get total payments due, excluding zero balances."
   },
   {
     "id": "rule_account_types",
     "category": "account_types",
     "type": "sql_rule",
-    "document": "Account types: 'credit' = credit cards, 'checking' = bank accounts, 'stocks' = investment accounts, 'crypto' = cryptocurrency accounts"
+    "document": "Account types: 'credit' = credit cards, 'checking' = bank accounts, 'stocks' = investment/retirement accounts (401K, Schwab, Robinhood, etc.), 'crypto' = cryptocurrency accounts (Coinbase, etc.)"
   },
   {
-    "id": "rule_date_filtering_range",
-    "category": "date_filtering",
+    "id": "rule_net_worth_calculation",
+    "category": "net_worth_calculation",
     "type": "sql_rule",
-    "document": "When filtering by date ranges, use last_updated_date column with BETWEEN or >= and <= operators."
+    "document": "For net worth calculation: Assets = checking + stocks + crypto (positive). Liabilities = credit card debt (subtract). Use: SUM(CASE WHEN type IN ('checking', 'stocks', 'crypto') THEN balance WHEN type = 'credit' THEN -balance END)"
+  },
+  {
+    "id": "rule_bank_name_matching",
+    "category": "bank_name_matching",
+    "type": "sql_rule",
+    "document": "Bank names may have variations (Chase, ChaseM). Use LIKE 'Chase%' for Chase-related queries. Exact bank names: Citi, BofaGrey, BofaRed, Affirm, Amex, Discover, DCU, CapitalOne, etc."
+  },
+  {
+    "id": "rule_balance_interpretation",
+    "category": "balance_interpretation",
+    "type": "sql_rule",
+    "document": "Balance column interpretation: For 'credit' accounts, balance = debt owed (positive number). For 'checking', 'stocks', 'crypto' accounts, balance = asset value (positive number)."
+  },
+  {
+    "id": "rule_null_handling",
+    "category": "null_handling",
+    "type": "sql_rule",
+    "document": "Handle NULL values: payment_due can be NULL for non-credit accounts. Use COALESCE(payment_due, 0) or WHERE payment_due > 0 to exclude NULLs."
+  },
+  {
+    "id": "rule_aggregation_grouping",
+    "category": "aggregation_grouping",
+    "type": "sql_rule",
+    "document": "When grouping by bank or type, always apply the latest-per-bank filter first, then group. Use aliases (a1, a2) to distinguish between main query and subquery tables."
   }
 ]

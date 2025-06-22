@@ -6,5 +6,37 @@
     "feedback": "bad",
     "id": "feedback_0",
     "timestamp": "2025-06-22T15:41:00.040889"
+  },
+  {
+    "question": "What is my total credit card debt?",
+    "generated_sql": "SELECT SUM(balance) as total_debt FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "corrected_sql": "SELECT SUM(balance) as total_debt FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE type = 'credit');",
+    "feedback": "bad",
+    "id": "feedback_1",
+    "timestamp": "2025-06-22T20:26:29.601597"
+  },
+  {
+    "question": "what is the balance on my Chase credit account",
+    "generated_sql": "SELECT s.balance as chase_credit_balance FROM account_weekly_snapshot s WHERE s.bank = 'Chase' AND s.type = 'credit' AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "corrected_sql": "SELECT c.balance as chase_credit_balance \nFROM account_weekly_snapshot c \nWHERE c.bank = 'Chase' AND c.type = 'credit' AND c.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE bank = 'Chase' AND type = 'credit');",
+    "feedback": "bad",
+    "id": "feedback_2",
+    "timestamp": "2025-06-22T20:41:05.039453"
+  },
+  {
+    "question": "what is the balance on my DCU credit account",
+    "generated_sql": "SELECT c.balance as dcubalance FROM accounts c JOIN account_weekly_snapshot w ON c.bank = w.bank AND c.type = w.type WHERE c.type = 'credit' AND w.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "corrected_sql": "SELECT c.balance as chase_credit_balance \nFROM account_weekly_snapshot c \nWHERE c.bank = 'DCU' AND c.type = 'credit' AND c.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE bank = 'DCU' AND type = 'credit');",
+    "feedback": "bad",
+    "id": "feedback_3",
+    "timestamp": "2025-06-22T20:49:13.072693"
+  },
+  {
+    "question": "How much do I have in my 401K?",
+    "generated_sql": "SELECT SUM(balance) as total_401K FROM account_weekly_snapshot WHERE type = 'stocks' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "corrected_sql": "SELECT SUM(balance) as total_401K FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K' and last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K');",
+    "feedback": "bad",
+    "id": "feedback_4",
+    "timestamp": "2025-06-22T21:01:33.339348"
   }
 ]

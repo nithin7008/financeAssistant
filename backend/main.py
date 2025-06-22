@@ -1,4 +1,5 @@
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,9 +17,22 @@ from initialize_chromadb import initialize_finance_chromadb
 from datetime import datetime
 import uuid
 from utils.feedback_utils import save_feedback_to_json, load_feedback_to_chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Configure logging
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+logger.info(f"🚀 Application started with log level: {LOG_LEVEL}")
+
+embedding_fn = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
 MODEL_NAME = os.getenv("MODEL_NAME")
@@ -64,16 +78,40 @@ def load_account_snapshots_from_excel(filepath: str):
         df.to_sql("account_weekly_snapshot", con=conn, if_exists="append", index=False)
 
 
+def normalize_question(question):
+    """Normalize question text for better matching"""
+    if not question:
+        return ""
+    import string
+    normalized = question.strip().lower()
+    normalized = normalized.translate(str.maketrans('', '', string.punctuation))
+    normalized = ' '.join(normalized.split())
+    return normalized
+
+
+def get_dynamic_threshold(question1, question2):
+    """Calculate dynamic threshold based on question characteristics"""
+    # Shorter questions tend to have higher variance in embeddings
+    avg_length = (len(question1.split()) + len(question2.split())) / 2
+    
+    if avg_length <= 3:  # Very short questions like "401k balance"
+        return 0.85
+    elif avg_length <= 6:  # Medium questions
+        return 0.75
+    else:  # Longer questions
+        return 0.65
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
         load_accounts_from_excel("db/accounts.xlsx")
         load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
         initialize_finance_chromadb()
-        load_feedback_to_chromadb(client)
-        print("✅ Backend and ChromaDB initialized successfully!")
+        load_feedback_to_chromadb(client, embedding_fn)
+        logger.info("✅ Backend and ChromaDB initialized successfully!")
     except Exception as e:
-        print(f"❌ Failed to initialize: {e}")
+        logger.error(f"❌ Failed to initialize: {e}")
     yield
 
 
@@ -93,8 +131,10 @@ app.add_middleware(
 async def reload_snapshots():
     try:
         load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
+        logger.info("Snapshots reloaded from Excel successfully")
         return {"message": "Snapshots reloaded from Excel successfully."}
     except Exception as e:
+        logger.error(f"Failed to reload snapshots: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -103,8 +143,10 @@ def get_tables():
     try:
         tables_df = pd.read_sql("SHOW TABLES", engine)
         table_names = [t[0] for t in tables_df.values]
+        logger.debug(f"Retrieved tables: {table_names}")
         return {"tables": table_names}
     except Exception as e:
+        logger.error(f"Failed to get tables: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -113,8 +155,10 @@ def get_table_data(table_name: str):
     try:
         df = pd.read_sql(f"SELECT * FROM {table_name}", engine)
         df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+        logger.debug(f"Retrieved {len(df)} rows from table {table_name}")
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
+        logger.error(f"Failed to get table data for {table_name}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- File upload functionality ----------
@@ -124,8 +168,10 @@ async def upload_file(file: UploadFile = File(...)):
     try:
         with open(save_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        logger.info(f"File '{file.filename}' uploaded successfully to {save_path}")
         return {"message": f"File '{file.filename}' uploaded successfully.", "path": save_path}
     except Exception as e:
+        logger.error(f"Failed to upload file {file.filename}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- AI-powered SQL generation ----------
@@ -133,50 +179,120 @@ class QueryRequest(BaseModel):
     question: str
 
 
-def call_ollama(prompt: str) -> str:
-    try:
-        result = subprocess.run(
-            ["ollama", "run", MODEL_NAME, prompt],
-            capture_output=True,
-            text=True,
-            check=True
-        )
-        response = result.stdout.strip()
-
-        # Clean up markdown/code formatting if present
-        if "```sql" in response:
-            response = response.split("```sql")[-1].split("```")[0].strip()
-        elif "```" in response:
-            response = response.split("```")[-1].strip()
-        return response
-    except subprocess.CalledProcessError as e:
-        raise HTTPException(status_code=500, detail=f"Ollama error: {e.stderr or str(e)}")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Unexpected Ollama error: {str(e)}")
-
-
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
     nl_query = request.question
-    client = chromadb.HttpClient(host="chromadb", port=8000)
-    feedback_collection = client.get_or_create_collection("user_feedback")
-
+    logger.info(f"🔍 Processing query: '{nl_query}'")
+    
     try:
-        # 1. Check user_feedback collection for previous 'bad' feedback matching this question
-        search_results = feedback_collection.query(
-            query_texts=[nl_query],
-            n_results=1,
-            where={"feedback": "bad"}
-        )
+        # Get user_feedback collection - handle embedding function gracefully
+        try:
+            feedback_collection = client.get_collection("user_feedback")
+            logger.debug("📋 Using existing user_feedback collection")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not get user_feedback collection: {e}")
+            feedback_collection = None
 
-        if search_results and search_results["documents"] and search_results["documents"][0]:
-            # Found a matching prior feedback
-            corrected_sql = search_results["metadatas"][0][0].get("corrected_sql")
-            if corrected_sql:
-                print("💡 Returning corrected SQL from user feedback")
-                return {"sql": corrected_sql}
+        # Step 1: Try semantic similarity against past bad feedback (if collection exists)
+        logger.debug("🔍 STEP 1: Checking user_feedback collection...")
+        if feedback_collection:
+            try:
+                results = feedback_collection.query(
+                    query_texts=[nl_query],
+                    n_results=1
+                )
 
-        # 2. If no feedback match found, proceed to generate SQL from Ollama
+                if results and results["documents"] and results["documents"][0]:
+                    metadata = results["metadatas"][0][0]
+                    distance = results["distances"][0][0] if results.get("distances") and results["distances"][0] else None
+                    
+                    logger.debug(f"📝 Found feedback entry - feedback: {metadata.get('feedback')}, has corrected_sql: {bool(metadata.get('corrected_sql'))}")
+                    logger.debug(f"📏 Similarity distance: {distance}")
+                    logger.debug(f"🔤 Feedback question: '{metadata.get('question', 'N/A')}'")
+                    logger.debug(f"🔤 Current question: '{nl_query}'")
+                    
+                    # Check for exact match with better normalization
+                    feedback_question_normalized = normalize_question(metadata.get('question', ''))
+                    current_question_normalized = normalize_question(nl_query)
+                    is_exact_match = feedback_question_normalized == current_question_normalized
+                    
+                    logger.debug(f"🔧 Normalized feedback: '{feedback_question_normalized}'")
+                    logger.debug(f"🔧 Normalized current: '{current_question_normalized}'")
+                    logger.debug(f"🎯 Exact match: {is_exact_match}")
+                    
+                    # Calculate dynamic threshold
+                    dynamic_threshold = get_dynamic_threshold(metadata.get('question', ''), nl_query)
+                    logger.debug(f"🎯 Dynamic threshold: {dynamic_threshold} (avg length: {(len(metadata.get('question', '').split()) + len(nl_query.split())) / 2:.1f} words)")
+                    
+                    if (metadata.get("feedback") == "bad" and 
+                        metadata.get("corrected_sql") and 
+                        (is_exact_match or (distance is not None and distance < dynamic_threshold))):
+                        logger.info("✅ SOURCE: USER_FEEDBACK - Returning corrected SQL from user feedback")
+                        logger.debug(f"🔧 Corrected SQL: {metadata.get('corrected_sql')}")
+                        return {"sql": metadata["corrected_sql"]}
+                    else:
+                        if metadata.get("feedback") != "bad":
+                            logger.debug(f"❌ Skipping feedback - not marked as 'bad'")
+                        elif not metadata.get("corrected_sql"):
+                            logger.debug(f"❌ Skipping feedback - missing corrected_sql")
+                        elif not is_exact_match and (distance is None or distance >= dynamic_threshold):
+                            logger.debug(f"❌ Skipping feedback - not similar enough (distance: {distance}, threshold: {dynamic_threshold})")
+                else:
+                    logger.debug("ℹ️ No feedback entries found")
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ Error querying feedback collection: {e}")
+        else:
+            logger.debug("⚠️ Feedback collection not available")
+
+        # Step 2: Try to find similar examples in query_examples collection
+        logger.debug("🔍 STEP 2: Checking query_examples collection...")
+        try:
+            examples_collection = client.get_collection("query_examples")
+            example_results = examples_collection.query(
+                query_texts=[nl_query],
+                n_results=1
+            )
+            
+            if example_results and example_results["documents"] and example_results["documents"][0]:
+                example_distance = example_results["distances"][0][0] if example_results.get("distances") and example_results["distances"][0] else None
+                example_metadata = example_results["metadatas"][0][0] if example_results["metadatas"][0] else {}
+                
+                logger.debug(f"📚 Found matching example - distance: {example_distance}")
+                logger.debug(f"🔤 Example question: '{example_metadata.get('question', 'N/A')}'")
+                logger.debug(f"🔤 Current question: '{nl_query}'")
+                
+                # Check for exact match with better normalization for examples
+                example_question_normalized = normalize_question(example_metadata.get('question', ''))
+                current_question_normalized = normalize_question(nl_query)
+                is_exact_match_example = example_question_normalized == current_question_normalized
+                
+                logger.debug(f"🔧 Normalized example: '{example_question_normalized}'")
+                logger.debug(f"🔧 Normalized current: '{current_question_normalized}'")
+                logger.debug(f"🎯 Example exact match: {is_exact_match_example}")
+                
+                # Calculate dynamic threshold for examples
+                example_dynamic_threshold = get_dynamic_threshold(example_metadata.get('question', ''), nl_query)
+                logger.debug(f"🎯 Example dynamic threshold: {example_dynamic_threshold} (avg length: {(len(example_metadata.get('question', '').split()) + len(nl_query.split())) / 2:.1f} words)")
+                
+                if ("sql" in example_metadata and 
+                    (is_exact_match_example or (example_distance is not None and example_distance < example_dynamic_threshold))):
+                    logger.info("✅ SOURCE: QUERY_EXAMPLES - Returning SQL from examples collection")
+                    logger.debug(f"📄 Example SQL: {example_metadata['sql']}")
+                    return {"sql": example_metadata["sql"]}
+                else:
+                    if "sql" not in example_metadata:
+                        logger.debug("❌ Example found but no SQL in metadata")
+                    elif not is_exact_match_example and (example_distance is None or example_distance >= example_dynamic_threshold):
+                        logger.debug(f"❌ Skipping example - not similar enough (distance: {example_distance}, threshold: {example_dynamic_threshold})")
+            else:
+                logger.debug("ℹ️ No matching examples found")
+                    
+        except Exception as e:
+            logger.warning(f"⚠️ Error querying examples collection: {e}")
+
+        # Step 3: If no feedback match or example found, proceed to generate SQL from Ollama
+        logger.debug("🔍 STEP 3: Generating SQL using Ollama...")
         schema_collection = client.get_collection("table_schemas")
         rules_collection = client.get_collection("sql_rules")
         examples_collection = client.get_collection("query_examples")
@@ -203,6 +319,7 @@ Return only the SQL query, no explanation. Use table aliases if needed, always u
 WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)
 """
 
+        logger.debug("🤖 Sending request to Ollama...")
         response = requests.post(
             OLLAMA_API_URL,
             json={
@@ -214,8 +331,8 @@ WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_sna
         response.raise_for_status()
         full_response = response.json()["response"]
 
-        print("\n📥 Model Response:")
-        print(full_response)
+        logger.info("✅ SOURCE: OLLAMA - Generated SQL using AI model")
+        logger.debug(f"📥 Model Response: {full_response}")
 
         code_block = re.search(r"```(?:sql)?\s*(.*?)```", full_response, re.DOTALL)
         if code_block:
@@ -227,14 +344,15 @@ WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_sna
             else:
                 raise ValueError("Could not find SQL query in model response.")
 
+        logger.debug(f"🎯 Final SQL: {generated_sql}")
         return {"sql": generated_sql}
 
     except requests.exceptions.RequestException as req_err:
-        print(f"❌ Ollama request error: {req_err}")
+        logger.error(f"❌ Ollama request error: {req_err}")
         raise HTTPException(status_code=500, detail=f"Ollama request error: {req_err}")
 
     except Exception as e:
-        print(f"❌ General error in query_to_sql: {e}")
+        logger.error(f"❌ General error in query_to_sql: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # ---------- Feedback collection ----------
@@ -244,11 +362,17 @@ class FeedbackModel(BaseModel):
     corrected_sql: str
     feedback: str
 
-
 @app.post("/feedback")
 async def save_feedback(feedback: FeedbackModel):
     try:
-        feedback_collection = client.get_or_create_collection("user_feedback")
+        # Get or create feedback collection with proper embedding function
+        try:
+            feedback_collection = client.get_collection("user_feedback")
+        except:
+            # If collection doesn't exist, create it with embedding function
+            feedback_collection = client.create_collection("user_feedback", embedding_function=embedding_fn)
+            logger.info("🆕 Created new user_feedback collection for feedback")
+
         feedback_doc = f"Q: {feedback.question}\nOriginal SQL: {feedback.generated_sql}\nCorrected SQL: {feedback.corrected_sql}\nFeedback: {feedback.feedback}\nTime: {datetime.utcnow().isoformat()}"
 
         feedback_collection.add(
@@ -264,22 +388,62 @@ async def save_feedback(feedback: FeedbackModel):
         )
 
         save_feedback_to_json(feedback.dict())
-
+        logger.info(f"💾 Feedback saved successfully for query: '{feedback.question}'")
         return {"message": "Feedback saved successfully."}
     except Exception as e:
+        logger.error(f"❌ Error saving feedback: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save feedback: {str(e)}")
-    
+
 # ---------- SQL Execution ----------
 class SQLQueryRequest(BaseModel):
     sql: str
-
 
 @app.post("/execute_sql")
 async def execute_sql(query: SQLQueryRequest):
     try:
         sql_lower = query.sql.lower()
+        logger.debug(f"🔍 Executing SQL: {sql_lower}")
         df = pd.read_sql(sql_lower, engine)
         df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+        logger.info(f"✅ SQL executed successfully, returned {len(df)} rows")
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
+        logger.error(f"❌ SQL execution error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
+
+# --------- LOG_LEVEL ----------
+@app.get("/log_level")
+def get_log_level():
+    """Get current log level"""
+    current_level = logging.getLogger().getEffectiveLevel()
+    level_name = logging.getLevelName(current_level)
+    return {"log_level": level_name, "numeric_level": current_level}
+
+class LogLevelRequest(BaseModel):
+    level: str
+
+@app.post("/log_level")
+def set_log_level(request: LogLevelRequest):
+    """Set log level dynamically"""
+    level = request.level.upper()  # <-- FIX: Use request.level instead of just level
+    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+    
+    if level not in valid_levels:
+        raise HTTPException(status_code=400, detail=f"Invalid log level. Must be one of: {valid_levels}")
+    
+    try:
+        # Set the log level for the root logger and our specific logger
+        logging.getLogger().setLevel(getattr(logging, level))
+        logger.setLevel(getattr(logging, level))
+        
+        # Also set for all existing loggers to ensure consistency
+        for name in logging.Logger.manager.loggerDict:
+            logging.getLogger(name).setLevel(getattr(logging, level))
+        
+        logger.info(f"🔧 Log level changed to: {level}")
+        return {"message": f"Log level set to {level}", "log_level": level}
+    
+    except Exception as e:
+        logger.error(f"❌ Failed to set log level: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to set log level: {str(e)}")
+

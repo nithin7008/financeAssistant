@@ -4,7 +4,6 @@ import requests
 from datetime import datetime
 import pytz
 
-
 eastern = pytz.timezone("US/Eastern")
 datetime.now(eastern)
 
@@ -13,6 +12,57 @@ BACKEND_URL = "http://backend:8000"
 # Initialize session state
 if "page" not in st.session_state:
     st.session_state.page = "home"
+
+# --- Log Level Toggle Function ---
+def render_log_level_toggle():
+    """Render log level toggle in sidebar"""
+    with st.sidebar:
+        st.markdown("---")
+        st.markdown("### 🔧 Debug Controls")
+        
+        # Get current log level
+        try:
+            response = requests.get(f"{BACKEND_URL}/log_level")
+            if response.status_code == 200:
+                current_level = response.json().get("log_level", "INFO")
+            else:
+                current_level = "INFO"
+        except:
+            current_level = "INFO"
+        
+        # Log level selector
+        levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        selected_level = st.selectbox(
+            "Log Level:",
+            levels,
+            index=levels.index(current_level) if current_level in levels else 1,
+            help="DEBUG: Show all logs (detailed)\nINFO: Show important events\nWARNING: Show warnings and errors\nERROR: Show errors only"
+        )
+        
+        # Update log level if changed
+        if selected_level != current_level:
+            try:
+                response = requests.post(
+                    f"{BACKEND_URL}/log_level",
+                    json={"level": selected_level}
+                )
+                if response.status_code == 200:
+                    st.success(f"✅ Log level set to {selected_level}")
+                    st.rerun()
+                else:
+                    st.error("❌ Failed to update log level")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+        
+        # Show current status
+        if selected_level == "DEBUG":
+            st.info("🔍 **DEBUG MODE**: Showing detailed logs")
+        elif selected_level == "INFO":
+            st.info("ℹ️ **INFO MODE**: Showing important events")
+        elif selected_level == "WARNING":
+            st.info("⚠️ **WARNING MODE**: Showing warnings & errors")
+        else:
+            st.info("🚨 **ERROR MODE**: Showing errors only")
 
 # --- Navigation Icons ---
 col1, col2, col3, col4 = st.columns([0.9, 0.05, 0.05, 0.05])
@@ -27,6 +77,9 @@ with col3:
 with col4:
     if st.button("🧪", help="Developer Mode"):
         st.session_state.page = "developer"
+
+# Render log level toggle on all pages
+render_log_level_toggle()
 
 # --- HOME PAGE ---
 if st.session_state.page == "home":
