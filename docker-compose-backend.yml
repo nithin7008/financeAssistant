@@ -13,6 +13,7 @@ services:
       DB_NAME: testdb
     volumes:
       - /c/Users/nithi/OneDrive/Documents/AI/financeAssistant/db:/app/db
+      - ./backend/chromadb_data:/app/chromadb_data
 
 networks:
   finance_net:

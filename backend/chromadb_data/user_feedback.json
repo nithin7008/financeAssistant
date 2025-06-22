@@ -1,0 +1,16 @@
+[
+  {
+    "question": "what is my total net worth?",
+    "generated_sql": "SELECT SUM(balance) as net_worth FROM account_weekly_snapshot c WHERE c.type = 'credit' AND c.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE type = 'credit');",
+    "corrected_sql": "WITH LatestSnapshots AS (\n  SELECT\n    bank,\n    type,\n    balance,\n    payment_due,\n    last_updated_date,\n    ROW_NUMBER() OVER (PARTITION BY bank, type ORDER BY last_updated_date DESC) AS rn\n  FROM account_weekly_snapshot\n)\n\nSELECT\n  (\n    -- Sum assets: checking, stocks, crypto\n    (SELECT COALESCE(SUM(balance), 0) FROM LatestSnapshots WHERE type IN ('checking', 'stocks', 'crypto') AND rn = 1)\n    -\n    -- Sum debts: credit\n    (SELECT COALESCE(SUM(balance), 0) FROM LatestSnapshots WHERE type = 'credit' AND rn = 1)\n  ) AS net_worth;\n",
+    "feedback": "bad",
+    "timestamp": "2025-06-22T06:04:18.314268"
+  },
+  {
+    "question": "what is my total net worth?",
+    "generated_sql": "SELECT (SUM(a.balance) - SUM(c.balance)) as net_worth FROM accounts a JOIN account_weekly_snapshot c ON a.bank = c.bank AND a.type = c.type WHERE c.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "corrected_sql": "WITH LatestSnapshots AS (\n  SELECT\n    bank,\n    type,\n    balance,\n    payment_due,\n    last_updated_date,\n    ROW_NUMBER() OVER (PARTITION BY bank, type ORDER BY last_updated_date DESC) AS rn\n  FROM account_weekly_snapshot\n)\n\nSELECT\n  (\n    -- Sum assets: checking, stocks, crypto\n    (SELECT COALESCE(SUM(balance), 0) FROM LatestSnapshots WHERE type IN ('checking', 'stocks', 'crypto') AND rn = 1)\n    -\n    -- Sum debts: credit\n    (SELECT COALESCE(SUM(balance), 0) FROM LatestSnapshots WHERE type = 'credit' AND rn = 1)\n  ) AS net_worth;\n",
+    "feedback": "bad",
+    "timestamp": "2025-06-22T06:15:51.424997"
+  }
+]

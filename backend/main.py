@@ -15,6 +15,7 @@ import chromadb
 from initialize_chromadb import initialize_finance_chromadb
 from datetime import datetime
 import uuid
+from utils.feedback_utils import save_feedback_to_json, load_feedback_to_chromadb
 
 # Load environment variables from .env file
 load_dotenv()
@@ -36,9 +37,10 @@ engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{databa
 
 client = chromadb.HttpClient(host="chromadb", port=8000)
 
+
 def clean_excel_data(df):
     df.columns = df.columns.str.strip().str.lower()
-    df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)  # Trim strings
+    df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)
     df = df.applymap(lambda x: None if str(x).lower() in ["null", "none", "nan"] else x)
     return df
 
@@ -46,27 +48,21 @@ def clean_excel_data(df):
 def load_accounts_from_excel(filepath: str):
     df = pd.read_excel(filepath)
     df = clean_excel_data(df)
-
     with engine.begin() as conn:
-        conn.execute(text("DELETE FROM accounts"))  # Truncate
+        conn.execute(text("DELETE FROM accounts"))
         df.to_sql("accounts", con=conn, if_exists="append", index=False)
+
 
 def load_account_snapshots_from_excel(filepath: str):
     df = pd.read_excel(filepath)
     df = clean_excel_data(df)
-
-    # Fill payment_due with 0 if null
     df["payment_due"] = df["payment_due"].fillna(0)
-
-    # Fill balance with 0 if null (optional fallback)
     df["balance"] = df["balance"].fillna(0)
-
-    # Drop rows with missing required keys
     df = df.dropna(subset=["bank", "type", "last_updated_date"], how="any")
-
     with engine.begin() as conn:
         conn.execute(text("DELETE FROM account_weekly_snapshot"))
         df.to_sql("account_weekly_snapshot", con=conn, if_exists="append", index=False)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,6 +70,7 @@ async def lifespan(app: FastAPI):
         load_accounts_from_excel("db/accounts.xlsx")
         load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
         initialize_finance_chromadb()
+        load_feedback_to_chromadb(client)
         print("✅ Backend and ChromaDB initialized successfully!")
     except Exception as e:
         print(f"❌ Failed to initialize: {e}")
@@ -91,6 +88,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.post("/reload_snapshots")
 async def reload_snapshots():
     try:
@@ -98,6 +96,7 @@ async def reload_snapshots():
         return {"message": "Snapshots reloaded from Excel successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/tables")
 def get_tables():
@@ -107,6 +106,7 @@ def get_tables():
         return {"tables": table_names}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/table/{table_name}")
 def get_table_data(table_name: str):
@@ -132,6 +132,7 @@ async def upload_file(file: UploadFile = File(...)):
 class QueryRequest(BaseModel):
     question: str
 
+
 def call_ollama(prompt: str) -> str:
     try:
         result = subprocess.run(
@@ -147,12 +148,12 @@ def call_ollama(prompt: str) -> str:
             response = response.split("```sql")[-1].split("```")[0].strip()
         elif "```" in response:
             response = response.split("```")[-1].strip()
-
         return response
     except subprocess.CalledProcessError as e:
         raise HTTPException(status_code=500, detail=f"Ollama error: {e.stderr or str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected Ollama error: {str(e)}")
+
 
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
@@ -243,11 +244,11 @@ class FeedbackModel(BaseModel):
     corrected_sql: str
     feedback: str
 
+
 @app.post("/feedback")
 async def save_feedback(feedback: FeedbackModel):
     try:
-        feedback_collection = client.get_collection("user_feedback")
-        
+        feedback_collection = client.get_or_create_collection("user_feedback")
         feedback_doc = f"Q: {feedback.question}\nOriginal SQL: {feedback.generated_sql}\nCorrected SQL: {feedback.corrected_sql}\nFeedback: {feedback.feedback}\nTime: {datetime.utcnow().isoformat()}"
 
         feedback_collection.add(
@@ -261,6 +262,9 @@ async def save_feedback(feedback: FeedbackModel):
             }],
             ids=[str(uuid.uuid4())]
         )
+
+        save_feedback_to_json(feedback.dict())
+
         return {"message": "Feedback saved successfully."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save feedback: {str(e)}")
@@ -268,6 +272,7 @@ async def save_feedback(feedback: FeedbackModel):
 # ---------- SQL Execution ----------
 class SQLQueryRequest(BaseModel):
     sql: str
+
 
 @app.post("/execute_sql")
 async def execute_sql(query: SQLQueryRequest):

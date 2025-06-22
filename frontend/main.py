@@ -34,6 +34,8 @@ if st.session_state.page == "home":
         st.session_state.mode = "input"
     if "edited_sql" not in st.session_state:
         st.session_state.edited_sql = ""
+    if "feedback_saved" not in st.session_state:
+        st.session_state.feedback_saved = False
 
     nl_query = st.text_input("Ask a question about your finances:")
 
@@ -60,26 +62,22 @@ if st.session_state.page == "home":
                     if data:
                         df = pd.DataFrame(data, columns=columns)
                         st.markdown("### Query Results:")
-                        st.dataframe(df)  # or use st.table(df) for a static table
+                        st.dataframe(df)  # interactive table
                     else:
                         st.warning("No results found.")
 
-                    requests.post(f"{BACKEND_URL}/feedback", json={
-                        "question": nl_query,
-                        "generated_sql": generated_sql,
-                        "corrected_sql": generated_sql,
-                        "feedback": "good"
-                    })
-                    st.success("Feedback saved!")
+                    # Don't save feedback automatically for good queries
+                    st.success("Query executed successfully!")
                     st.session_state.mode = "input"
+                    st.session_state.feedback_saved = False
                 else:
                     st.error("SQL Execution failed")
-
 
         with col2:
             if st.session_state.mode != "bad" and st.button("Bad"):
                 st.session_state.mode = "bad"
                 st.session_state.edited_sql = generated_sql
+                st.session_state.feedback_saved = False
 
         if st.session_state.mode == "bad":
             st.session_state.edited_sql = st.text_area("Edit SQL:", value=st.session_state.edited_sql)
@@ -98,16 +96,24 @@ if st.session_state.page == "home":
                     else:
                         st.warning("No results found.")
 
-                    requests.post(f"{BACKEND_URL}/feedback", json={
+                    st.session_state.feedback_saved = False
+                else:
+                    st.error("SQL Execution failed")
+
+            if not st.session_state.feedback_saved:
+                if st.button("Save Feedback"):
+                    feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
                         "question": nl_query,
                         "generated_sql": generated_sql,
                         "corrected_sql": st.session_state.edited_sql,
                         "feedback": "bad"
                     })
-                    st.success("Feedback saved!")
-                    st.session_state.mode = "input"
-                else:
-                    st.error("SQL Execution failed")
+                    if feedback_response.status_code == 200:
+                        st.success("Feedback saved!")
+                        st.session_state.feedback_saved = True
+                        st.session_state.mode = "input"
+                    else:
+                        st.error("Failed to save feedback")
 
 
 elif st.session_state.page == "admin":
