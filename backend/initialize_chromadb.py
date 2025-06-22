@@ -40,10 +40,21 @@ def initialize_finance_chromadb():
             ids=[example["id"]]
         )
 
-    print("✅ ChromaDB initialization complete from JSON files.")
-    
+    # Load and insert user feedback (NEW BLOCK)
+    try:
+        feedback = load_json_file("chromadb_data/user_feedback.json")
+        for entry in feedback:
+            feedback_collection.add(
+                documents=[entry["document"]],
+                metadatas=[{k: entry[k] for k in entry if k not in ["document", "id"]}],
+                ids=[entry["id"]]
+            )
+        print(f"✅ Loaded {len(feedback)} feedback entries into ChromaDB.")
+    except Exception as e:
+        print(f"⚠️ Skipped loading feedback: {e}")
+
+    # Log collection counts
     collections = client.list_collections()
     for collection in collections:
         count = client.get_or_create_collection(collection.name).count()
         print(f"🔎 Collection '{collection.name}' has {count} items")
-

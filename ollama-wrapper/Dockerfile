@@ -1,11 +1,11 @@
-FROM python:3.11-slim
+# FROM python:3.11-slim
 
-WORKDIR /app
+# WORKDIR /app
 
-COPY main.py .
+# COPY main.py .
 
-RUN pip install fastapi uvicorn pydantic
+# RUN pip install fastapi uvicorn pydantic
 
-# Mount the host ollama binary and models folder at runtime
+# # Mount the host ollama binary and models folder at runtime
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
+# CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
