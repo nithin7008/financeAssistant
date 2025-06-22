@@ -1,7 +1,12 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import date
+from datetime import datetime
+import pytz
+
+
+eastern = pytz.timezone("US/Eastern")
+datetime.now(eastern)
 
 BACKEND_URL = "http://backend:8000"
 
@@ -99,7 +104,19 @@ elif st.session_state.page == "admin":
     bank_type_pairs = list(snapshot_df[["bank", "type"]].drop_duplicates().itertuples(index=False, name=None))
 
     st.markdown("### Add or Update Weekly Snapshot")
-    today = date.today()
+
+    # Initialize fixed timestamp for session if not set
+    if "fixed_last_updated" not in st.session_state:
+        st.session_state.fixed_last_updated = datetime.now()
+
+    fixed_timestamp = st.session_state.fixed_last_updated
+
+    # Display timestamp and provide reset button
+    st.write(f"Last updated timestamp for this session: {fixed_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
+
+    if st.button("Reset Timestamp"):
+        st.session_state.fixed_last_updated = datetime.now()
+        st.experimental_rerun()
 
     # Create editable dataframe with columns and pre-filled bank/type from pairs
     editable_df = pd.DataFrame({
@@ -107,7 +124,7 @@ elif st.session_state.page == "admin":
         "type": [bt[1] for bt in bank_type_pairs],
         "balance": [None] * len(bank_type_pairs),
         "payment_due": [None] * len(bank_type_pairs),
-        "last_updated_date": [today] * len(bank_type_pairs),
+        "last_updated_date": [fixed_timestamp] * len(bank_type_pairs),
     })
 
     edited_rows = st.data_editor(
@@ -120,13 +137,18 @@ elif st.session_state.page == "admin":
 
     if st.button("📥 Submit Snapshot Data"):
         try:
-            # Drop blank rows and append to existing file and DB
             new_rows = pd.DataFrame(edited_rows)
             new_rows = new_rows.dropna(subset=["balance", "payment_due"], how="all")
             if not new_rows.empty:
                 updated_df = pd.concat([snapshot_df, new_rows], ignore_index=True)
                 updated_df.to_excel("db/account_weekly_snapshot.xlsx", index=False)
-                st.success("Snapshot data saved successfully!")
+
+                # Call backend API to reload snapshots into DB
+                reload_resp = requests.post(f"{BACKEND_URL}/reload_snapshots")
+                if reload_resp.status_code == 200:
+                    st.success("Snapshot data saved and backend DB reloaded successfully!")
+                else:
+                    st.warning("Snapshot saved but failed to reload backend DB.")
             else:
                 st.warning("No valid rows to save.")
         except Exception as e:

@@ -17,7 +17,7 @@ CREATE TABLE account_weekly_snapshot (
     type ENUM('credit', 'checking', 'stocks', 'crypto') NOT NULL,
     balance DECIMAL(10,2) NOT NULL,
     payment_due DECIMAL(10,2) NOT NULL,
-    last_updated_date DATE NOT NULL,
+    last_updated_date DATETIME NOT NULL,
     PRIMARY KEY (bank, type, last_updated_date),
     FOREIGN KEY (bank, type) REFERENCES accounts(bank, type) ON DELETE CASCADE
 );

@@ -5,17 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 import shutil
 import subprocess
 import requests
 import re
 from dotenv import load_dotenv
-from datetime import date
 
 # Load environment variables from .env file
 load_dotenv()
-app = FastAPI()
 
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
 MODEL_NAME = os.getenv("MODEL_NAME")
@@ -29,6 +27,54 @@ database = os.getenv("DB_NAME")
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
+# Database config
+engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
+
+def clean_excel_data(df):
+    df.columns = df.columns.str.strip().str.lower()
+    df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)  # Trim strings
+    df = df.applymap(lambda x: None if str(x).lower() in ["null", "none", "nan"] else x)
+    return df
+
+
+def load_accounts_from_excel(filepath: str):
+    df = pd.read_excel(filepath)
+    df = clean_excel_data(df)
+
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM accounts"))  # Truncate
+        df.to_sql("accounts", con=conn, if_exists="append", index=False)
+
+def load_account_snapshots_from_excel(filepath: str):
+    df = pd.read_excel(filepath)
+    df = clean_excel_data(df)
+
+    # Fill payment_due with 0 if null
+    df["payment_due"] = df["payment_due"].fillna(0)
+
+    # Fill balance with 0 if null (optional fallback)
+    df["balance"] = df["balance"].fillna(0)
+
+    # Drop rows with missing required keys
+    df = df.dropna(subset=["bank", "type", "last_updated_date"], how="any")
+
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM account_weekly_snapshot"))
+        df.to_sql("account_weekly_snapshot", con=conn, if_exists="append", index=False)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        load_accounts_from_excel("db/accounts.xlsx")
+        load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
+        print("✅ Loaded initial Excel data into DB")
+    except Exception as e:
+        print(f"❌ Failed to load initial Excel data: {e}")
+    yield
+
+
+app = FastAPI(lifespan=lifespan)
+
 
 # Allow CORS for frontend (adjust origins as needed)
 app.add_middleware(
@@ -38,39 +84,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database config
-engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
-
-
-def load_accounts_from_excel(filepath: str):
-    df = pd.read_excel(filepath)
-    df = df.where(pd.notnull(df), None)
-    df.to_sql("accounts", con=engine, if_exists="replace", index=False)
-
-def load_account_snapshots_from_excel(filepath: str):
-    df = pd.read_excel(filepath)
-    df = df.where(pd.notnull(df), None)
-    df.to_sql("account_weekly_snapshot", con=engine, if_exists="replace", index=False)
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+@app.post("/reload_snapshots")
+async def reload_snapshots():
     try:
-        load_accounts_from_excel("db/accounts.xlsx")
         load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
-        print("Loaded initial Excel data into DB")
+        return {"message": "Snapshots reloaded from Excel successfully."}
     except Exception as e:
-        print(f"Failed to load initial Excel data: {e}")
-    yield
-
-app = FastAPI(lifespan=lifespan)
-
-# Re-apply middleware since app was redefined
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/tables")
 def get_tables():
@@ -108,7 +128,7 @@ class QueryRequest(BaseModel):
 def call_ollama(prompt: str) -> str:
     try:
         result = subprocess.run(
-            ["ollama", "run", "mistral", prompt],
+            ["ollama", "run", MODEL_NAME, prompt],
             capture_output=True,
             text=True,
             check=True
@@ -126,7 +146,6 @@ def call_ollama(prompt: str) -> str:
         raise HTTPException(status_code=500, detail=f"Ollama error: {e.stderr or str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected Ollama error: {str(e)}")
-
 
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
@@ -171,4 +190,3 @@ async def execute_sql(query: SQLQueryRequest):
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
-

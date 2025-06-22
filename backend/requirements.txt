@@ -8,3 +8,4 @@ cryptography
 requests
 python-dotenv
 numpy
+openpyxl
