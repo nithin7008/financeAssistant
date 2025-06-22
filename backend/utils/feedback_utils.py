@@ -13,6 +13,8 @@ def save_feedback_to_json(feedback_entry: dict):
         else:
             feedback_list = []
 
+        # Assign an ID if not present
+        feedback_entry["id"] = f"feedback_{len(feedback_list)}"
         feedback_entry["timestamp"] = datetime.utcnow().isoformat()
         feedback_list.append(feedback_entry)
 
@@ -22,6 +24,7 @@ def save_feedback_to_json(feedback_entry: dict):
         print("✅ Feedback saved to JSON")
     except Exception as e:
         print(f"❌ Failed to save feedback to JSON: {e}")
+
 
 def load_feedback_to_chromadb(client):
     """Load feedback from JSON and insert into ChromaDB collection."""
