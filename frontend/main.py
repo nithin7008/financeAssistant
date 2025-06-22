@@ -17,7 +17,7 @@ if "page" not in st.session_state:
 # --- Navigation Icons ---
 col1, col2, col3, col4 = st.columns([0.9, 0.05, 0.05, 0.05])
 with col1:
-    st.title("💰 AI Text-to-SQL Finance Assistant")
+    st.title("💰 Finance Assistant")
 with col2:
     if st.button("🏠", help="Home"):
         st.session_state.page = "home"
@@ -53,9 +53,17 @@ if st.session_state.page == "home":
             if st.button("Good"):
                 result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
                 if result.status_code == 200:
-                    data = result.json()
-                    st.markdown("### Query Results:")
-                    st.write(data)
+                    response_json = result.json()
+                    columns = response_json.get("columns", [])
+                    data = response_json.get("data", [])
+
+                    if data:
+                        df = pd.DataFrame(data, columns=columns)
+                        st.markdown("### Query Results:")
+                        st.dataframe(df)  # or use st.table(df) for a static table
+                    else:
+                        st.warning("No results found.")
+
                     requests.post(f"{BACKEND_URL}/feedback", json={
                         "question": nl_query,
                         "generated_sql": generated_sql,
@@ -66,6 +74,7 @@ if st.session_state.page == "home":
                     st.session_state.mode = "input"
                 else:
                     st.error("SQL Execution failed")
+
 
         with col2:
             if st.session_state.mode != "bad" and st.button("Bad"):
@@ -78,9 +87,17 @@ if st.session_state.page == "home":
             if st.button("Run Edited SQL"):
                 result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.edited_sql})
                 if result.status_code == 200:
-                    data = result.json()
-                    st.markdown("### Query Results:")
-                    st.write(data)
+                    response_json = result.json()
+                    columns = response_json.get("columns", [])
+                    data = response_json.get("data", [])
+
+                    if data:
+                        df = pd.DataFrame(data, columns=columns)
+                        st.markdown("### Query Results:")
+                        st.dataframe(df)  # interactive table
+                    else:
+                        st.warning("No results found.")
+
                     requests.post(f"{BACKEND_URL}/feedback", json={
                         "question": nl_query,
                         "generated_sql": generated_sql,
@@ -91,6 +108,7 @@ if st.session_state.page == "home":
                     st.session_state.mode = "input"
                 else:
                     st.error("SQL Execution failed")
+
 
 elif st.session_state.page == "admin":
     st.header("📊 Weekly Snapshot Editor")
