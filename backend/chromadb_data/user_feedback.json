@@ -38,5 +38,13 @@
     "feedback": "bad",
     "id": "feedback_4",
     "timestamp": "2025-06-22T21:01:33.339348"
+  },
+  {
+    "question": "what is the total payment due on my credit card accounts",
+    "generated_sql": "SELECT SUM(cc.payment_due) as total_credit_card_payments\nFROM accounts a1\nJOIN account_weekly_snapshot cc ON a1.bank = cc.bank AND a1.type = cc.type\nWHERE cc.type = 'credit'\nAND cc.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot c2 WHERE c2.bank = a1.bank AND c2.type = a1.type);",
+    "corrected_sql": "SELECT SUM(cc.payment_due) as total_credit_card_payments\nFROM accounts a1\nJOIN account_weekly_snapshot cc ON a1.bank = cc.bank AND a1.type = cc.type\nWHERE cc.type = 'credit'\nAND cc.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot c2 WHERE c2.bank = a1.bank AND c2.type = a1.type);",
+    "feedback": "good",
+    "id": "feedback_5",
+    "timestamp": "2025-06-22T22:27:35.788307"
   }
 ]
