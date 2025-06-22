@@ -1,0 +1,19 @@
+[
+  {
+    "id": "schema_accounts",
+    "table_name": "accounts",
+    "type": "schema",
+    "columns": "bank, type, apr, credit_limit, due_date_day",
+    "primary_key": "bank, type",
+    "document": "Table: accounts\nColumns:\n- bank VARCHAR(100)..."
+  },
+  {
+    "id": "schema_account_weekly_snapshot",
+    "table_name": "account_weekly_snapshot",
+    "type": "schema",
+    "columns": "bank, type, balance, payment_due, last_updated_date",
+    "primary_key": "bank, type, last_updated_date",
+    "foreign_key": "accounts(bank, type)",
+    "document": "Table: account_weekly_snapshot\nColumns:\n- bank VARCHAR(100)..."
+  }
+]

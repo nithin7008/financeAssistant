@@ -1,0 +1,66 @@
+[
+  {
+    "id": "example_0",
+    "type": "example_query",
+    "question": "What is my total credit card debt?",
+    "sql": "SELECT SUM(balance) as total_debt FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Calculates total debt across all credit cards using latest snapshot",
+    "document": "Question: What is my total credit card debt?\nSQL: SELECT SUM(balance) as total_debt FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_1",
+    "type": "example_query",
+    "question": "How much available credit do I have?",
+    "sql": "SELECT SUM(a.credit_limit - s.balance) as available_credit FROM accounts a JOIN account_weekly_snapshot s ON a.bank = s.bank AND a.type = s.type WHERE a.type = 'credit' AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Calculates available credit by subtracting current balance from credit limit",
+    "document": "Question: How much available credit do I have?\nSQL: SELECT SUM(a.credit_limit - s.balance) as available_credit FROM accounts a JOIN account_weekly_snapshot s ON a.bank = s.bank AND a.type = s.type WHERE a.type = 'credit' AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_2",
+    "type": "example_query",
+    "question": "What is my total checking account balance?",
+    "sql": "SELECT SUM(balance) as total_checking FROM account_weekly_snapshot WHERE type = 'checking' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Sums all checking account balances from latest snapshot",
+    "document": "Question: What is my total checking account balance?\nSQL: SELECT SUM(balance) as total_checking FROM account_weekly_snapshot WHERE type = 'checking' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_3",
+    "type": "example_query",
+    "question": "Show me my investment portfolio value",
+    "sql": "SELECT SUM(balance) as portfolio_value FROM account_weekly_snapshot WHERE type IN ('stocks', 'crypto') AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Calculates total value of stocks and crypto investments",
+    "document": "Question: Show me my investment portfolio value\nSQL: SELECT SUM(balance) as portfolio_value FROM account_weekly_snapshot WHERE type IN ('stocks', 'crypto') AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_4",
+    "type": "example_query",
+    "question": "Which credit cards have payments due?",
+    "sql": "SELECT s.bank, s.balance, s.payment_due, a.due_date_day FROM account_weekly_snapshot s JOIN accounts a ON s.bank = a.bank AND s.type = a.type WHERE s.type = 'credit' AND s.payment_due > 0 AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Shows credit cards with outstanding payment due amounts",
+    "document": "Question: Which credit cards have payments due?\nSQL: SELECT s.bank, s.balance, s.payment_due, a.due_date_day FROM account_weekly_snapshot s JOIN accounts a ON s.bank = a.bank AND s.type = a.type WHERE s.type = 'credit' AND s.payment_due > 0 AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_5",
+    "type": "example_query",
+    "question": "What is my net worth?",
+    "sql": "SELECT (SELECT SUM(balance) FROM account_weekly_snapshot WHERE type IN ('checking', 'stocks', 'crypto') AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)) - (SELECT SUM(balance) FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)) as net_worth;",
+    "description": "Calculates net worth: (cash + investments) - credit card debt",
+    "document": "Question: What is my net worth?\nSQL: SELECT (SELECT SUM(balance) FROM account_weekly_snapshot WHERE type IN ('checking', 'stocks', 'crypto') AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)) - (SELECT SUM(balance) FROM account_weekly_snapshot WHERE type = 'credit' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)) as net_worth;"
+  },
+  {
+    "id": "example_6",
+    "type": "example_query",
+    "question": "Show me credit utilization for each credit card",
+    "sql": "SELECT s.bank, s.balance, a.credit_limit, ROUND((s.balance / a.credit_limit) * 100, 2) as utilization_percent FROM account_weekly_snapshot s JOIN accounts a ON s.bank = a.bank AND s.type = a.type WHERE s.type = 'credit' AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
+    "description": "Shows credit utilization percentage for each credit card",
+    "document": "Question: Show me credit utilization for each credit card\nSQL: SELECT s.bank, s.balance, a.credit_limit, ROUND((s.balance / a.credit_limit) * 100, 2) as utilization_percent FROM account_weekly_snapshot s JOIN accounts a ON s.bank = a.bank AND s.type = a.type WHERE s.type = 'credit' AND s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);"
+  },
+  {
+    "id": "example_7",
+    "type": "example_query",
+    "question": "List all my accounts with current balances",
+    "sql": "SELECT s.bank, s.type, s.balance, s.last_updated_date FROM account_weekly_snapshot s WHERE s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot) ORDER BY s.type, s.bank;",
+    "description": "Lists all accounts with their current balances, grouped by type",
+    "document": "Question: List all my accounts with current balances\nSQL: SELECT s.bank, s.type, s.balance, s.last_updated_date FROM account_weekly_snapshot s WHERE s.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot) ORDER BY s.type, s.bank;"
+  }
+]

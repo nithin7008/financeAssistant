@@ -1,0 +1,62 @@
+[
+  {
+    "id": "rule_debt_calculation",
+    "category": "debt_calculation",
+    "type": "sql_rule",
+    "document": "For credit card debt calculation, use SUM(balance) WHERE type = 'credit'. Credit card balances represent debt owed."
+  },
+  {
+    "id": "rule_credit_calculation",
+    "category": "credit_calculation",
+    "type": "sql_rule",
+    "document": "For available credit calculation, use SUM(credit_limit - balance) WHERE type = 'credit'."
+  },
+  {
+    "id": "rule_cash_calculation",
+    "category": "cash_calculation",
+    "type": "sql_rule",
+    "document": "For total checking balance, use SUM(balance) WHERE type = 'checking'."
+  },
+  {
+    "id": "rule_investment_calculation",
+    "category": "investment_calculation",
+    "type": "sql_rule",
+    "document": "For investment portfolio value, use SUM(balance) WHERE type IN ('stocks', 'crypto')."
+  },
+  {
+    "id": "rule_join_pattern",
+    "category": "join_pattern",
+    "type": "sql_rule",
+    "document": "Always join accounts and account_weekly_snapshot on (bank, type) when you need both account details and current balances."
+  },
+  {
+    "id": "rule_date_filtering_latest",
+    "category": "date_filtering",
+    "type": "sql_rule",
+    "document": "Use the latest date in account_weekly_snapshot for current balances: WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot)"
+  },
+  {
+    "id": "rule_utilization_calculation",
+    "category": "utilization_calculation",
+    "type": "sql_rule",
+    "document": "For credit utilization, calculate (balance / credit_limit) * 100 for each credit account."
+  },
+  {
+    "id": "rule_payment_calculation",
+    "category": "payment_calculation",
+    "type": "sql_rule",
+    "document": "Payment due amounts are in the payment_due column, not calculated from balance."
+  },
+  {
+    "id": "rule_account_types",
+    "category": "account_types",
+    "type": "sql_rule",
+    "document": "Account types: 'credit' = credit cards, 'checking' = bank accounts, 'stocks' = investment accounts, 'crypto' = cryptocurrency accounts"
+  },
+  {
+    "id": "rule_date_filtering_range",
+    "category": "date_filtering",
+    "type": "sql_rule",
+    "document": "When filtering by date ranges, use last_updated_date column with BETWEEN or >= and <= operators."
+  }
+]
