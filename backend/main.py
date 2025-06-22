@@ -9,10 +9,20 @@ import shutil
 import subprocess
 import requests
 import re
+from dotenv import load_dotenv
 
+
+load_dotenv()
 app = FastAPI()
 
-OLLAMA_URL = "http://host.docker.internal:11434"
+OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
+MODEL_NAME = os.getenv("MODEL_NAME")
+
+host = os.getenv("DB_HOST")
+port = os.getenv("DB_PORT")
+user = os.getenv("DB_USER")
+password = os.getenv("DB_PASSWORD")
+database = os.getenv("DB_NAME")
 
 
 # Allow CORS for frontend (adjust origins as needed)
@@ -24,15 +34,8 @@ app.add_middleware(
 )
 
 # Database config
-host = "db"
-port = "3306"
-user = "user"
-password = "password"
-database = "testdb"
 engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
 
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 @app.get("/tables")
 def get_tables():
@@ -52,15 +55,18 @@ def get_table_data(table_name: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
-    save_path = os.path.join(UPLOAD_DIR, file.filename)
-    try:
-        with open(save_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        return {"message": f"File '{file.filename}' uploaded successfully.", "path": save_path}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+# ---------- File upload functionality ----------
+# UPLOAD_DIR = os.getenv("UPLOAD_DIR", "uploads")
+# os.makedirs(UPLOAD_DIR, exist_ok=True)
+# @app.post("/upload")
+# async def upload_file(file: UploadFile = File(...)):
+#     save_path = os.path.join(UPLOAD_DIR, file.filename)
+#     try:
+#         with open(save_path, "wb") as buffer:
+#             shutil.copyfileobj(file.file, buffer)
+#         return {"message": f"File '{file.filename}' uploaded successfully.", "path": save_path}
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- AI-powered SQL generation ----------
 class QueryRequest(BaseModel):
@@ -89,16 +95,15 @@ def call_ollama(prompt: str) -> str:
         raise HTTPException(status_code=500, detail=f"Unexpected Ollama error: {str(e)}")
 
 
-
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
     nl_query = request.question
 
     try:
         response = requests.post(
-            "http://host.docker.internal:11434/api/generate",
+            OLLAMA_API_URL,
             json={
-                "model": "mistral",
+                "model": MODEL_NAME,
                 "prompt": f"Convert this to a SQL query. Only return the query without explanation:\n\n{nl_query}",
                 "stream": False
             }
@@ -124,8 +129,6 @@ async def query_to_sql(request: QueryRequest):
         raise HTTPException(status_code=500, detail=f"Model error: {str(e)}")
 
 
-
-
 # ---------- SQL Execution ----------
 class SQLQueryRequest(BaseModel):
     sql: str
@@ -139,5 +142,3 @@ async def execute_sql(query: SQLQueryRequest):
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
-
-
