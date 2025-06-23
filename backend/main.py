@@ -340,7 +340,7 @@ async def query_to_sql(request: QueryRequest):
             logger.warning(f"Error querying examples collection: {e}")
 
         # Step 3: If no feedback match or example found, proceed to generate SQL from Ollama
-        logger.debug("🔍 STEP 3: Generating SQL using Ollama...")
+        logger.debug("STEP 3: Generating SQL using Ollama...")
         schema_collection = client.get_collection("table_schemas")
         rules_collection = client.get_collection("sql_rules")
         examples_collection = client.get_collection("query_examples")

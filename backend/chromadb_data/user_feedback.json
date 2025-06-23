@@ -78,5 +78,13 @@
     "feedback": "good",
     "id": "feedback_9",
     "timestamp": "2025-06-23T03:01:26.910885"
+  },
+  {
+    "question": "Show me all my investment accounts",
+    "generated_sql": "SELECT aws.bank, aws.balance as total_investments\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = a.type\nWHERE aws.type IN ('stocks', 'crypto')\nAND aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT aws.bank, aws.balance as total_investments\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = a.type\nWHERE aws.type IN ('stocks', 'crypto')\nAND aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "feedback": "good",
+    "id": "feedback_10",
+    "timestamp": "2025-06-23T12:17:11.545575"
   }
 ]
