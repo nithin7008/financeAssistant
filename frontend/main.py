@@ -13,56 +13,104 @@ BACKEND_URL = "http://backend:8000"
 if "page" not in st.session_state:
     st.session_state.page = "home"
 
+# Initialize sidebar state - hidden by default
+if "sidebar_open" not in st.session_state:
+    st.session_state.sidebar_open = False
+
 # --- Log Level Toggle Function ---
 def render_log_level_toggle():
     """Render log level toggle in sidebar"""
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("### 🔧 Debug Controls")
-        
-        # Get current log level
-        try:
-            response = requests.get(f"{BACKEND_URL}/log_level")
-            if response.status_code == 200:
-                current_level = response.json().get("log_level", "INFO")
-            else:
-                current_level = "INFO"
-        except:
-            current_level = "INFO"
-        
-        # Log level selector
-        levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
-        selected_level = st.selectbox(
-            "Log Level:",
-            levels,
-            index=levels.index(current_level) if current_level in levels else 1,
-            help="DEBUG: Show all logs (detailed)\nINFO: Show important events\nWARNING: Show warnings and errors\nERROR: Show errors only"
-        )
-        
-        # Update log level if changed
-        if selected_level != current_level:
+    if st.session_state.sidebar_open:
+        with st.sidebar:
+            st.markdown("---")
+            st.markdown("### 🔧 Debug Controls")
+            
+            # Get current log level
             try:
-                response = requests.post(
-                    f"{BACKEND_URL}/log_level",
-                    json={"level": selected_level}
-                )
+                response = requests.get(f"{BACKEND_URL}/log_level")
                 if response.status_code == 200:
-                    st.success(f"✅ Log level set to {selected_level}")
-                    st.rerun()
+                    current_level = response.json().get("log_level", "INFO")
                 else:
-                    st.error("❌ Failed to update log level")
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-        
-        # Show current status
-        if selected_level == "DEBUG":
-            st.info("🔍 **DEBUG MODE**: Showing detailed logs")
-        elif selected_level == "INFO":
-            st.info("ℹ️ **INFO MODE**: Showing important events")
-        elif selected_level == "WARNING":
-            st.info("⚠️ **WARNING MODE**: Showing warnings & errors")
-        else:
-            st.info("🚨 **ERROR MODE**: Showing errors only")
+                    current_level = "INFO"
+            except:
+                current_level = "INFO"
+            
+            # Log level selector
+            levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+            selected_level = st.selectbox(
+                "Log Level:",
+                levels,
+                index=levels.index(current_level) if current_level in levels else 1,
+                help="DEBUG: Show all logs (detailed)\nINFO: Show important events\nWARNING: Show warnings and errors\nERROR: Show errors only"
+            )
+            
+            # Update log level if changed
+            if selected_level != current_level:
+                try:
+                    response = requests.post(
+                        f"{BACKEND_URL}/log_level",
+                        json={"level": selected_level}
+                    )
+                    if response.status_code == 200:
+                        st.success(f"✅ Log level set to {selected_level}")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update log level")
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+            
+            # Show current status
+            if selected_level == "DEBUG":
+                st.info("🔍 **DEBUG MODE**: Showing detailed logs")
+            elif selected_level == "INFO":
+                st.info("ℹ️ **INFO MODE**: Showing important events")
+            elif selected_level == "WARNING":
+                st.info("⚠️ **WARNING MODE**: Showing warnings & errors")
+            else:
+                st.info("🚨 **ERROR MODE**: Showing errors only")
+
+# Custom CSS to hide sidebar by default and style the gear button
+st.markdown("""
+<style>
+    /* Hide sidebar by default */
+    .css-1d391kg {
+        display: none;
+    }
+    
+    /* Show sidebar when open */
+    .sidebar-open .css-1d391kg {
+        display: block !important;
+    }
+    
+    /* Custom gear button styling */
+    .gear-button {
+        position: fixed;
+        top: 70px;
+        left: 10px;
+        z-index: 999;
+        background: #ff4b4b;
+        color: white;
+        border: none;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        cursor: pointer;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }
+    
+    .gear-button:hover {
+        background: #ff6b6b;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Add gear button to toggle sidebar
+gear_col1, gear_col2 = st.columns([0.1, 0.9])
+with gear_col1:
+    if st.button("⚙️", help="Toggle Debug Controls", key="gear_toggle"):
+        st.session_state.sidebar_open = not st.session_state.sidebar_open
+        st.rerun()
 
 # --- Navigation Icons ---
 col1, col2, col3, col4 = st.columns([0.9, 0.05, 0.05, 0.05])
@@ -78,7 +126,7 @@ with col4:
     if st.button("🧪", help="Developer Mode"):
         st.session_state.page = "developer"
 
-# Render log level toggle on all pages
+# Render log level toggle only when sidebar is open
 render_log_level_toggle()
 
 # --- HOME PAGE ---
