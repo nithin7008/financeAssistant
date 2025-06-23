@@ -46,5 +46,13 @@
     "feedback": "good",
     "id": "feedback_5",
     "timestamp": "2025-06-22T22:27:35.788307"
+  },
+  {
+    "question": "Show me all my checking accounts with their current balances",
+    "generated_sql": "SELECT \n  bank,\n  balance AS current_balance\nFROM \n  account_weekly_snapshot aws \nJOIN \n  accounts a ON aws.bank = a.bank AND aws.type = a.type\nWHERE \n  type = 'checking'\nAND \n  last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT aws.bank, aws.balance \nFROM account_weekly_snapshot aws \nWHERE aws.type = 'checking' \nAND aws.last_updated_date = (\n    SELECT MAX(a2.last_updated_date) \n    FROM account_weekly_snapshot a2 \n    WHERE a2.bank = aws.bank AND a2.type = aws.type\n)",
+    "feedback": "bad",
+    "id": "feedback_6",
+    "timestamp": "2025-06-23T01:59:28.991807"
   }
 ]
