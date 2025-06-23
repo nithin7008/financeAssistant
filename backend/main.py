@@ -23,11 +23,9 @@ load_dotenv()
 
 logger = setup_logging()
 
-embedding_fn = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
-
 OLLAMA_API_URL = os.getenv("OLLAMA_API_URL")
 MODEL_NAME = os.getenv("MODEL_NAME")
-
+ST_MODEL_NAME = os.getenv("ST_MODEL_NAME")
 host = os.getenv("DB_HOST")
 port = os.getenv("DB_PORT")
 user = os.getenv("DB_USER")
@@ -36,6 +34,8 @@ database = os.getenv("DB_NAME")
 
 UPLOAD_DIR = "uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+embedding_fn = SentenceTransformerEmbeddingFunction(model_name=ST_MODEL_NAME)
 
 # Database config
 engine = create_engine(f"mysql+pymysql://{user}:{password}@{host}:{port}/{database}")
@@ -166,6 +166,17 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ---------- AI-powered SQL generation ----------
+def load_prompt_template(template_name):
+    """Load prompt template from file"""
+    template_path = os.path.join("prompts", f"{template_name}.txt")
+    try:
+        with open(template_path, 'r', encoding='utf-8') as file:
+            return file.read()
+    except FileNotFoundError:
+        logger.error(f"Prompt template not found: {template_path}")
+        raise HTTPException(status_code=500, detail="Prompt template missing")
+
+
 class QueryRequest(BaseModel):
     question: str
 
@@ -338,22 +349,24 @@ async def query_to_sql(request: QueryRequest):
         rules = [d for d in rules_collection.get()["documents"]]
         examples = [d for d in examples_collection.get()["documents"]]
 
-        prompt = f"""You are a helpful financial assistant that converts natural language to SQL queries.
+        # Get user feedback/corrections
+        user_feedbacks = []
+        try:
+            feedback_collection = client.get_collection("user_feedback")
+            feedback_results = feedback_collection.get()
+            user_feedbacks = [d for d in feedback_results["documents"]]
+        except Exception as e:
+            logger.warning(f"Could not retrieve feedback: {e}")
+            user_feedbacks = ["No previous corrections available"]
 
-## SCHEMA:
-{chr(10).join(schemas)}
-
-## RULES:
-{chr(10).join(rules)}
-
-## EXAMPLES:
-{chr(10).join(examples)}
-
-## USER QUESTION:
-{nl_query}
-
-Return only the SQL query, no explanation. Use table aliases if needed, always use the latest snapshot from account_weekly_snapshot using:
-WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type)"""
+        prompt_template = load_prompt_template("sql_generation_prompt")
+        prompt = prompt_template.format(
+            schemas=chr(10).join(schemas),
+            rules=chr(10).join(rules),
+            examples=chr(10).join(examples),
+            user_feedbacks=chr(10).join(user_feedbacks),
+            nl_query=nl_query
+        )
 
         logger.debug("Sending request to Ollama...")
         response = requests.post(
@@ -361,7 +374,13 @@ WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_sna
             json={
                 "model": MODEL_NAME,
                 "prompt": prompt,
-                "stream": False
+                "stream": False,
+                "options": {
+                    "num_ctx": 6144,
+                    "temperature": 0.1,
+                    "top_p": 0.9,
+                    "num_predict": 200
+                }
             }
         )
         response.raise_for_status()

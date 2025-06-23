@@ -54,5 +54,29 @@
     "feedback": "bad",
     "id": "feedback_6",
     "timestamp": "2025-06-23T01:59:28.991807"
+  },
+  {
+    "question": "Show me all my checking accounts",
+    "generated_sql": "SELECT \n  aws.bank,\n  aws.balance\nFROM \n  account_weekly_snapshot aws\nWHERE \n  aws.type = 'checking' \n  AND aws.last_updated_date = (\n    SELECT MAX(a2.last_updated_date) \n    FROM account_weekly_snapshot a2 \n    WHERE a2.bank = aws.bank AND a2.type = aws.type\n);",
+    "corrected_sql": "SELECT \n  aws.bank,\n  aws.balance\nFROM \n  account_weekly_snapshot aws\nWHERE \n  aws.type = 'checking' \n  AND aws.last_updated_date = (\n    SELECT MAX(a2.last_updated_date) \n    FROM account_weekly_snapshot a2 \n    WHERE a2.bank = aws.bank AND a2.type = aws.type\n);",
+    "feedback": "good",
+    "id": "feedback_7",
+    "timestamp": "2025-06-23T02:34:05.720109"
+  },
+  {
+    "question": "Show me all my credit accounts",
+    "generated_sql": "SELECT aws.bank, aws.balance as debt\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = 'credit'\nWHERE aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT aws.bank, aws.balance as debt\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = 'credit'\nWHERE aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "feedback": "good",
+    "id": "feedback_8",
+    "timestamp": "2025-06-23T02:58:28.206623"
+  },
+  {
+    "question": "Show me all my crypto accounts",
+    "generated_sql": "SELECT aws.bank, aws.balance\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = a.type\nWHERE aws.type = 'crypto'\nAND aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT aws.bank, aws.balance\nFROM account_weekly_snapshot aws\nJOIN accounts a ON aws.bank = a.bank AND aws.type = a.type\nWHERE aws.type = 'crypto'\nAND aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "feedback": "good",
+    "id": "feedback_9",
+    "timestamp": "2025-06-23T03:01:26.910885"
   }
 ]
