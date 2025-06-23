@@ -1,5 +1,4 @@
 import os
-import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,7 +7,6 @@ import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, text
 import shutil
-import subprocess
 import requests
 import re
 from dotenv import load_dotenv
@@ -18,19 +16,12 @@ from datetime import datetime
 import uuid
 from utils.feedback_utils import save_feedback_to_json, load_feedback_to_chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from utils.logging_utils import setup_logging, get_logger, set_log_level, get_current_log_level
 
 # Load environment variables from .env file
 load_dotenv()
 
-# Configure logging
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-logging.basicConfig(
-    level=getattr(logging, LOG_LEVEL),
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-logger.info(f"🚀 Application started with log level: {LOG_LEVEL}")
+logger = setup_logging()
 
 embedding_fn = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
 
@@ -54,8 +45,8 @@ client = chromadb.HttpClient(host="chromadb", port=8000)
 
 def clean_excel_data(df):
     df.columns = df.columns.str.strip().str.lower()
-    df = df.applymap(lambda x: str(x).strip() if isinstance(x, str) else x)
-    df = df.applymap(lambda x: None if str(x).lower() in ["null", "none", "nan"] else x)
+    df = df.map(lambda x: str(x).strip() if isinstance(x, str) else x)
+    df = df.map(lambda x: None if str(x).lower() in ["null", "none", "nan"] else x)
     return df
 
 
@@ -109,9 +100,9 @@ async def lifespan(app: FastAPI):
         load_account_snapshots_from_excel("db/account_weekly_snapshot.xlsx")
         initialize_finance_chromadb()
         load_feedback_to_chromadb(client, embedding_fn)
-        logger.info("✅ Backend and ChromaDB initialized successfully!")
+        logger.info("Backend and ChromaDB initialized successfully!")
     except Exception as e:
-        logger.error(f"❌ Failed to initialize: {e}")
+        logger.error(f"Failed to initialize: {e}")
     yield
 
 
@@ -182,7 +173,7 @@ class QueryRequest(BaseModel):
 @app.post("/query")
 async def query_to_sql(request: QueryRequest):
     nl_query = request.question
-    logger.info(f"🔍 Processing query: '{nl_query}'")
+    logger.info(f"Processing query: '{nl_query}'")
     
     # Track the source of the SQL for feedback storage decisions
     sql_source = "unknown"
@@ -191,13 +182,13 @@ async def query_to_sql(request: QueryRequest):
         # Get user_feedback collection - handle embedding function gracefully
         try:
             feedback_collection = client.get_collection("user_feedback")
-            logger.debug("📋 Using existing user_feedback collection")
+            logger.debug("Using existing user_feedback collection")
         except Exception as e:
-            logger.warning(f"⚠️ Could not get user_feedback collection: {e}")
+            logger.warning(f"Could not get user_feedback collection: {e}")
             feedback_collection = None
 
         # Step 1: Check for GOOD feedback first (proven working queries)
-        logger.debug("🔍 STEP 1A: Checking for good feedback...")
+        logger.debug("STEP 1A: Checking for good feedback...")
         if feedback_collection:
             try:
                 good_results = feedback_collection.query(
@@ -210,39 +201,39 @@ async def query_to_sql(request: QueryRequest):
                     metadata = good_results["metadatas"][0][0]
                     distance = good_results["distances"][0][0] if good_results.get("distances") and good_results["distances"][0] else None
                     
-                    logger.debug(f"✅ Found good feedback entry")
-                    logger.debug(f"📏 Similarity distance: {distance}")
-                    logger.debug(f"🔤 Good feedback question: '{metadata.get('question', 'N/A')}'")
+                    logger.debug(f"Found good feedback entry")
+                    logger.debug(f"Similarity distance: {distance}")
+                    logger.debug(f"Good feedback question: '{metadata.get('question', 'N/A')}'")
                     
                     # Check for exact match with better normalization
                     feedback_question_normalized = normalize_question(metadata.get('question', ''))
                     current_question_normalized = normalize_question(nl_query)
                     is_exact_match = feedback_question_normalized == current_question_normalized
                     
-                    logger.debug(f"🔧 Normalized good feedback: '{feedback_question_normalized}'")
-                    logger.debug(f"🔧 Normalized current: '{current_question_normalized}'")
-                    logger.debug(f"🎯 Good feedback exact match: {is_exact_match}")
+                    logger.debug(f"Normalized good feedback: '{feedback_question_normalized}'")
+                    logger.debug(f"Normalized current: '{current_question_normalized}'")
+                    logger.debug(f"Good feedback exact match: {is_exact_match}")
                     
                     # Use higher confidence threshold for good queries (0.25 instead of dynamic)
                     good_threshold = 0.25
-                    logger.debug(f"🎯 Good feedback threshold: {good_threshold}")
+                    logger.debug(f"Good feedback threshold: {good_threshold}")
                     
                     if (metadata.get("generated_sql") and
                         (is_exact_match or (distance is not None and distance < good_threshold))):
-                        logger.info("✅ SOURCE: GOOD_FEEDBACK - Returning proven working SQL")
-                        logger.debug(f"🔧 Good SQL: {metadata.get('generated_sql')}")
+                        logger.info("SOURCE: GOOD_FEEDBACK - Returning proven working SQL")
+                        logger.debug(f"Good SQL: {metadata.get('generated_sql')}")
                         sql_source = "good_feedback"
                         return {"sql": metadata["generated_sql"], "source": sql_source}
                     else:
-                        logger.debug(f"❌ Good feedback not similar enough (distance: {distance}, threshold: {good_threshold})")
+                        logger.debug(f"Good feedback not similar enough (distance: {distance}, threshold: {good_threshold})")
                 else:
-                    logger.debug("ℹ️ No good feedback entries found")
+                    logger.debug("No good feedback entries found")
                     
             except Exception as e:
-                logger.warning(f"⚠️ Error querying good feedback: {e}")
+                logger.warning(f"Error querying good feedback: {e}")
 
         # Step 1B: Check for BAD feedback (corrected queries)
-        logger.debug("🔍 STEP 1B: Checking for bad feedback corrections...")
+        logger.debug("STEP 1B: Checking for bad feedback corrections...")
         if feedback_collection:
             try:
                 bad_results = feedback_collection.query(
@@ -255,44 +246,44 @@ async def query_to_sql(request: QueryRequest):
                     metadata = bad_results["metadatas"][0][0]
                     distance = bad_results["distances"][0][0] if bad_results.get("distances") and bad_results["distances"][0] else None
                     
-                    logger.debug(f"📝 Found bad feedback entry with corrected_sql: {bool(metadata.get('corrected_sql'))}")
-                    logger.debug(f"📏 Similarity distance: {distance}")
-                    logger.debug(f"🔤 Bad feedback question: '{metadata.get('question', 'N/A')}'")
+                    logger.debug(f"Found bad feedback entry with corrected_sql: {bool(metadata.get('corrected_sql'))}")
+                    logger.debug(f"Similarity distance: {distance}")
+                    logger.debug(f"Bad feedback question: '{metadata.get('question', 'N/A')}'")
                     
                     # Check for exact match with better normalization
                     feedback_question_normalized = normalize_question(metadata.get('question', ''))
                     current_question_normalized = normalize_question(nl_query)
                     is_exact_match = feedback_question_normalized == current_question_normalized
                     
-                    logger.debug(f"🔧 Normalized bad feedback: '{feedback_question_normalized}'")
-                    logger.debug(f"🔧 Normalized current: '{current_question_normalized}'")
-                    logger.debug(f"🎯 Bad feedback exact match: {is_exact_match}")
+                    logger.debug(f"Normalized bad feedback: '{feedback_question_normalized}'")
+                    logger.debug(f"Normalized current: '{current_question_normalized}'")
+                    logger.debug(f"Bad feedback exact match: {is_exact_match}")
                     
                     # Calculate dynamic threshold for bad feedback
                     dynamic_threshold = get_dynamic_threshold(metadata.get('question', ''), nl_query)
-                    logger.debug(f"🎯 Bad feedback dynamic threshold: {dynamic_threshold}")
+                    logger.debug(f"Bad feedback dynamic threshold: {dynamic_threshold}")
                     
                     if (metadata.get("corrected_sql") and
                         (is_exact_match or (distance is not None and distance < dynamic_threshold))):
-                        logger.info("✅ SOURCE: BAD_FEEDBACK_CORRECTED - Returning corrected SQL from user feedback")
-                        logger.debug(f"🔧 Corrected SQL: {metadata.get('corrected_sql')}")
+                        logger.info("SOURCE: BAD_FEEDBACK_CORRECTED - Returning corrected SQL from user feedback")
+                        logger.debug(f"Corrected SQL: {metadata.get('corrected_sql')}")
                         sql_source = "bad_feedback_corrected"
                         return {"sql": metadata["corrected_sql"], "source": sql_source}
                     else:
                         if not metadata.get("corrected_sql"):
-                            logger.debug(f"❌ Skipping bad feedback - missing corrected_sql")
+                            logger.debug(f"Skipping bad feedback - missing corrected_sql")
                         elif not is_exact_match and (distance is None or distance >= dynamic_threshold):
-                            logger.debug(f"❌ Skipping bad feedback - not similar enough (distance: {distance}, threshold: {dynamic_threshold})")
+                            logger.debug(f"Skipping bad feedback - not similar enough (distance: {distance}, threshold: {dynamic_threshold})")
                 else:
-                    logger.debug("ℹ️ No bad feedback entries found")
+                    logger.debug("No bad feedback entries found")
                     
             except Exception as e:
-                logger.warning(f"⚠️ Error querying bad feedback: {e}")
+                logger.warning(f"Error querying bad feedback: {e}")
         else:
-            logger.debug("⚠️ Feedback collection not available")
+            logger.debug("Feedback collection not available")
 
         # Step 2: Try to find similar examples in query_examples collection
-        logger.debug("🔍 STEP 2: Checking query_examples collection...")
+        logger.debug("STEP 2: Checking query_examples collection...")
         try:
             examples_collection = client.get_collection("query_examples")
             example_results = examples_collection.query(
@@ -304,38 +295,38 @@ async def query_to_sql(request: QueryRequest):
                 example_distance = example_results["distances"][0][0] if example_results.get("distances") and example_results["distances"][0] else None
                 example_metadata = example_results["metadatas"][0][0] if example_results["metadatas"][0] else {}
                 
-                logger.debug(f"📚 Found matching example - distance: {example_distance}")
-                logger.debug(f"🔤 Example question: '{example_metadata.get('question', 'N/A')}'")
+                logger.debug(f"Found matching example - distance: {example_distance}")
+                logger.debug(f"Example question: '{example_metadata.get('question', 'N/A')}'")
                 
                 # Check for exact match with better normalization for examples
                 example_question_normalized = normalize_question(example_metadata.get('question', ''))
                 current_question_normalized = normalize_question(nl_query)
                 is_exact_match_example = example_question_normalized == current_question_normalized
                 
-                logger.debug(f"🔧 Normalized example: '{example_question_normalized}'")
-                logger.debug(f"🔧 Normalized current: '{current_question_normalized}'")
-                logger.debug(f"🎯 Example exact match: {is_exact_match_example}")
+                logger.debug(f"Normalized example: '{example_question_normalized}'")
+                logger.debug(f"Normalized current: '{current_question_normalized}'")
+                logger.debug(f"Example exact match: {is_exact_match_example}")
                 
                 # Calculate dynamic threshold for examples
                 example_dynamic_threshold = get_dynamic_threshold(example_metadata.get('question', ''), nl_query)
-                logger.debug(f"🎯 Example dynamic threshold: {example_dynamic_threshold}")
+                logger.debug(f"Example dynamic threshold: {example_dynamic_threshold}")
                 
                 if ("sql" in example_metadata and
                     (is_exact_match_example or (example_distance is not None and example_distance < example_dynamic_threshold))):
-                    logger.info("✅ SOURCE: QUERY_EXAMPLES - Returning SQL from examples collection")
-                    logger.debug(f"📄 Example SQL: {example_metadata['sql']}")
+                    logger.info("SOURCE: QUERY_EXAMPLES - Returning SQL from examples collection")
+                    logger.debug(f"Example SQL: {example_metadata['sql']}")
                     sql_source = "query_examples"
                     return {"sql": example_metadata["sql"], "source": sql_source}
                 else:
                     if "sql" not in example_metadata:
-                        logger.debug("❌ Example found but no SQL in metadata")
+                        logger.debug("Example found but no SQL in metadata")
                     elif not is_exact_match_example and (example_distance is None or example_distance >= example_dynamic_threshold):
-                        logger.debug(f"❌ Skipping example - not similar enough (distance: {example_distance}, threshold: {example_dynamic_threshold})")
+                        logger.debug(f"Skipping example - not similar enough (distance: {example_distance}, threshold: {example_dynamic_threshold})")
             else:
-                logger.debug("ℹ️ No matching examples found")
+                logger.debug("No matching examples found")
                 
         except Exception as e:
-            logger.warning(f"⚠️ Error querying examples collection: {e}")
+            logger.warning(f"Error querying examples collection: {e}")
 
         # Step 3: If no feedback match or example found, proceed to generate SQL from Ollama
         logger.debug("🔍 STEP 3: Generating SQL using Ollama...")
@@ -364,7 +355,7 @@ async def query_to_sql(request: QueryRequest):
 Return only the SQL query, no explanation. Use table aliases if needed, always use the latest snapshot from account_weekly_snapshot using:
 WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type)"""
 
-        logger.debug("🤖 Sending request to Ollama...")
+        logger.debug("Sending request to Ollama...")
         response = requests.post(
             OLLAMA_API_URL,
             json={
@@ -376,8 +367,8 @@ WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_sna
         response.raise_for_status()
         full_response = response.json()["response"]
 
-        logger.info("✅ SOURCE: OLLAMA - Generated SQL using AI model")
-        logger.debug(f"📥 Model Response: {full_response}")
+        logger.info("SOURCE: OLLAMA - Generated SQL using AI model")
+        logger.debug(f"Model Response: {full_response}")
 
         code_block = re.search(r"```(?:sql)?\s*(.*?)```", full_response, re.DOTALL)
         if code_block:
@@ -389,16 +380,16 @@ WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_sna
             else:
                 raise ValueError("Could not find SQL query in model response.")
 
-        logger.debug(f"🎯 Final SQL: {generated_sql}")
+        logger.debug(f"Final SQL: {generated_sql}")
         sql_source = "ollama_generated"
         return {"sql": generated_sql, "source": sql_source}
 
     except requests.exceptions.RequestException as req_err:
-        logger.error(f"❌ Ollama request error: {req_err}")
+        logger.error(f"Ollama request error: {req_err}")
         raise HTTPException(status_code=500, detail=f"Ollama request error: {req_err}")
 
     except Exception as e:
-        logger.error(f"❌ General error in query_to_sql: {e}")
+        logger.error(f"General error in query_to_sql: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
 # ---------- Feedback collection ----------
@@ -417,7 +408,7 @@ async def save_feedback(feedback: FeedbackModel):
         except:
             # If collection doesn't exist, create it with embedding function
             feedback_collection = client.create_collection("user_feedback", embedding_function=embedding_fn)
-            logger.info("🆕 Created new user_feedback collection for feedback")
+            logger.info("Created new user_feedback collection for feedback")
 
         feedback_doc = f"Q: {feedback.question}\nOriginal SQL: {feedback.generated_sql}\nCorrected SQL: {feedback.corrected_sql}\nFeedback: {feedback.feedback}\nTime: {datetime.utcnow().isoformat()}"
 
@@ -434,10 +425,10 @@ async def save_feedback(feedback: FeedbackModel):
         )
 
         save_feedback_to_json(feedback.dict())
-        logger.info(f"💾 Feedback saved successfully for query: '{feedback.question}'")
+        logger.info(f"Feedback saved successfully for query: '{feedback.question}'")
         return {"message": "Feedback saved successfully."}
     except Exception as e:
-        logger.error(f"❌ Error saving feedback: {e}")
+        logger.error(f"Error saving feedback: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save feedback: {str(e)}")
 
 # ---------- SQL Execution ----------
@@ -451,45 +442,30 @@ async def execute_sql(query: SQLQueryRequest):
         logger.debug(f"🔍 Executing SQL: {sql_lower}")
         df = pd.read_sql(sql_lower, engine)
         df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
-        logger.info(f"✅ SQL executed successfully, returned {len(df)} rows")
+        logger.info(f"SQL executed successfully, returned {len(df)} rows")
         return {"columns": list(df.columns), "data": df.to_dict(orient="records")}
     except Exception as e:
-        logger.error(f"❌ SQL execution error: {str(e)}")
+        logger.error(f"SQL execution error: {str(e)}")
         raise HTTPException(status_code=400, detail=f"SQL execution error: {str(e)}")
 
 # --------- LOG_LEVEL ----------
 @app.get("/log_level")
 def get_log_level():
     """Get current log level"""
-    current_level = logging.getLogger().getEffectiveLevel()
-    level_name = logging.getLevelName(current_level)
-    return {"log_level": level_name, "numeric_level": current_level}
+    return get_current_log_level()
 
 class LogLevelRequest(BaseModel):
     level: str
 
 @app.post("/log_level")
-def set_log_level(request: LogLevelRequest):
+def set_log_level_endpoint(request: LogLevelRequest):
     """Set log level dynamically"""
-    level = request.level.upper()  # <-- FIX: Use request.level instead of just level
-    valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
-    
-    if level not in valid_levels:
-        raise HTTPException(status_code=400, detail=f"Invalid log level. Must be one of: {valid_levels}")
-    
     try:
-        # Set the log level for the root logger and our specific logger
-        logging.getLogger().setLevel(getattr(logging, level))
-        logger.setLevel(getattr(logging, level))
-        
-        # Also set for all existing loggers to ensure consistency
-        for name in logging.Logger.manager.loggerDict:
-            logging.getLogger(name).setLevel(getattr(logging, level))
-        
-        logger.info(f"🔧 Log level changed to: {level}")
+        level = set_log_level(request.level)
+        logger.info(f"Log level changed to: {level}")
         return {"message": f"Log level set to {level}", "log_level": level}
-    
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"❌ Failed to set log level: {e}")
+        logger.error(f"Failed to set log level: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to set log level: {str(e)}")
-

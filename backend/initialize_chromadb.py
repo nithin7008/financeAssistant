@@ -1,5 +1,9 @@
 import json
 import chromadb
+from utils.logging_utils import get_logger
+
+
+logger = get_logger(__name__)
 
 def load_json_file(path):
     with open(path, "r") as f:
@@ -49,12 +53,12 @@ def initialize_finance_chromadb():
                 metadatas=[{k: entry[k] for k in entry if k not in ["document", "id"]}],
                 ids=[entry["id"]]
             )
-        print(f"✅ Loaded {len(feedback)} feedback entries into ChromaDB.")
+        logger.info(f"Loaded {len(feedback)} feedback entries into ChromaDB.")
     except Exception as e:
-        print(f"⚠️ Skipped loading feedback: {e}")
+        logger.warning(f"Skipped loading feedback: {e}")
 
     # Log collection counts
     collections = client.list_collections()
     for collection in collections:
         count = client.get_or_create_collection(collection.name).count()
-        print(f"🔎 Collection '{collection.name}' has {count} items")
+        logger.info(f"Collection '{collection.name}' has {count} items")
