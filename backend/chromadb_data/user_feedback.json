@@ -102,5 +102,13 @@
     "feedback": "good",
     "id": "feedback_12",
     "timestamp": "2025-06-29T20:32:40.952136"
+  },
+  {
+    "question": "what is my total stocks balance along with checking account balance?",
+    "generated_sql": "SELECT SUM(CASE WHEN type IN ('checking') THEN aws.balance ELSE 0 END) as total_checking_balance, SUM(CASE WHEN type IN ('stocks') THEN aws.balance ELSE 0 END) as total_stocks_balance FROM account_weekly_snapshot aws WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT SUM(CASE WHEN type IN ('checking') THEN aws.balance ELSE 0 END) as total_checking_balance, SUM(CASE WHEN type IN ('stocks') THEN aws.balance ELSE 0 END) as total_stocks_balance FROM account_weekly_snapshot aws WHERE last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "feedback": "good",
+    "id": "feedback_13",
+    "timestamp": "2025-06-29T21:34:34.854958"
   }
 ]

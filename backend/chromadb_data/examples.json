@@ -91,9 +91,9 @@
     "id": "example_11",
     "type": "example_query",
     "question": "How much do I have across all Chase accounts?",
-    "sql": "SELECT SUM(CASE WHEN type = 'credit' THEN -balance ELSE balance END) as chase_net_balance FROM account_weekly_snapshot a1 WHERE bank LIKE 'Chase%' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type);",
+    "sql": "SELECT SUM(CASE WHEN type = 'credit' THEN -balance ELSE balance END) as chase_net_balance FROM account_weekly_snapshot a1 WHERE bank LIKE 'Chase' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type);",
     "description": "Calculates net balance across all Chase accounts (assets minus credit card debt)",
-    "document": "Question: How much do I have across all Chase accounts?\nSQL: SELECT SUM(CASE WHEN type = 'credit' THEN -balance ELSE balance END) as chase_net_balance FROM account_weekly_snapshot a1 WHERE bank LIKE 'Chase%' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type);"
+    "document": "Question: How much do I have across all Chase accounts?\nSQL: SELECT SUM(CASE WHEN type = 'credit' THEN -balance ELSE balance END) as chase_net_balance FROM account_weekly_snapshot a1 WHERE bank LIKE 'Chase' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type);"
   },
   {
     "id": "example_12",

@@ -17,6 +17,7 @@ import uuid
 from utils.feedback_utils import save_feedback_to_json, load_feedback_to_chromadb
 from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
 from utils.logging_utils import setup_logging, get_logger, set_log_level, get_current_log_level
+from utils.question_utils import get_all_questions
 
 # Load environment variables from .env file
 load_dotenv()
@@ -116,6 +117,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+#  ----- Questions Dropdown -----
+@app.get("/questions")
+async def get_questions():
+    """
+    Get all available questions from examples and user feedback
+    """
+    try:
+        questions = get_all_questions()
+        return {
+            "questions": questions,
+            "total": len(questions)
+        }
+    except Exception as e:
+        logger.error(f"Error getting questions: {e}")
+        raise HTTPException(status_code=500, detail=f"Error retrieving questions: {str(e)}")
 
 
 @app.post("/reload_snapshots")

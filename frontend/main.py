@@ -3,6 +3,7 @@ import pandas as pd
 import requests
 from datetime import datetime
 import pytz
+from components.question_selector import create_simple_question_selector
 
 eastern = pytz.timezone("US/Eastern")
 datetime.now(eastern)
@@ -156,8 +157,9 @@ if st.session_state.page == "home":
     if "last_processed_query" not in st.session_state:
         st.session_state.last_processed_query = ""
 
-    nl_query = st.text_input("Ask a question about your finances:")
-    
+    # nl_query = st.text_input("Ask a question about your finances:")
+    nl_query = create_simple_question_selector()
+
     # Only call AI if this is a NEW query (not a rerun)
     if nl_query and nl_query != st.session_state.last_processed_query:
         # Store current query for feedback purposes
