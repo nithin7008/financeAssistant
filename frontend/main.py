@@ -129,7 +129,6 @@ with col4:
 # Render log level toggle only when sidebar is open
 render_log_level_toggle()
 
-# --- HOME PAGE ---
 if st.session_state.page == "home":
     # Initialize session state variables
     if "mode" not in st.session_state:
@@ -152,113 +151,131 @@ if st.session_state.page == "home":
         st.session_state.confidence = "low"
     if "query_results" not in st.session_state:
         st.session_state.query_results = None
+    if "ai_response_data" not in st.session_state:
+        st.session_state.ai_response_data = None
+    if "last_processed_query" not in st.session_state:
+        st.session_state.last_processed_query = ""
 
     nl_query = st.text_input("Ask a question about your finances:")
     
-    if nl_query:
+    # Only call AI if this is a NEW query (not a rerun)
+    if nl_query and nl_query != st.session_state.last_processed_query:
         # Store current query for feedback purposes
         st.session_state.current_nl_query = nl_query
+        st.session_state.last_processed_query = nl_query
         
-        response = requests.post(f"{BACKEND_URL}/smart_query", json={"question": nl_query})
+        # Reset previous state for new query
+        st.session_state.mode = "input"
+        st.session_state.query_executed = False
+        st.session_state.execution_successful = False
+        st.session_state.query_results = None
+        st.session_state.feedback_saved = False
+        
+        # Use the new smart_query endpoint - THIS ONLY RUNS FOR NEW QUERIES
+        with st.spinner("🤖 Processing your question..."):
+            response = requests.post(f"{BACKEND_URL}/smart_query", json={"question": nl_query})
         
         if response.status_code == 200:
-            response_data = response.json()
-            confidence = response_data.get("confidence", "low")
-            sql_source = response_data.get("source", "unknown")
+            st.session_state.ai_response_data = response.json()
+        else:
+            st.session_state.ai_response_data = {"error": "Failed to process query", "confidence": "low", "source": "error"}
+    
+    # Display results from stored AI response (this runs on every rerun but doesn't call AI)
+    if st.session_state.ai_response_data and nl_query:
+        response_data = st.session_state.ai_response_data
+        confidence = response_data.get("confidence", "low")
+        sql_source = response_data.get("source", "unknown")
+        
+        # Store for feedback purposes
+        st.session_state.confidence = confidence
+        st.session_state.sql_source = sql_source
+        
+        # Source information
+        source_emoji = {
+            "ollama_generated": "🤖",
+            "good_feedback": "✅",
+            "bad_feedback_corrected": "🔧",
+            "query_examples": "📚",
+            "unknown": "❓",
+            "error": "❌"
+        }
+        source_description = {
+            "ollama_generated": "AI Generated",
+            "good_feedback": "From Good Feedback",
+            "bad_feedback_corrected": "From Corrected Feedback", 
+            "query_examples": "From Examples",
+            "unknown": "Unknown Source",
+            "error": "Error Occurred"
+        }
+        
+        if confidence == "high":
+            # HIGH CONFIDENCE: Show results directly, no SQL
+            st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (High Confidence)")
             
-            # Store for feedback purposes
-            st.session_state.confidence = confidence
-            st.session_state.sql_source = sql_source
-            
-            # Source information
-            source_emoji = {
-                "ollama_generated": "🤖",
-                "good_feedback": "✅",
-                "bad_feedback_corrected": "🔧",
-                "query_examples": "📚",
-                "unknown": "❓",
-                "error": "❌"
-            }
-            source_description = {
-                "ollama_generated": "AI Generated",
-                "good_feedback": "From Good Feedback",
-                "bad_feedback_corrected": "From Corrected Feedback", 
-                "query_examples": "From Examples",
-                "unknown": "Unknown Source",
-                "error": "Error Occurred"
-            }
-            
-            if confidence == "high":
-                # HIGH CONFIDENCE: Show results directly, no SQL
-                st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (High Confidence)")
+            if response_data.get("error"):
+                st.error(f"❌ Error: {response_data['error']}")
+                # If high confidence query failed, show SQL for debugging
+                if response_data.get("sql"):
+                    st.markdown("### SQL (for debugging):")
+                    st.code(response_data["sql"])
+                    st.session_state.current_generated_sql = response_data["sql"]
+                    st.session_state.mode = "bad"  # Allow user to fix it
+            elif response_data.get("data"):
+                # Show results directly
+                columns = response_data.get("columns", [])
+                data = response_data.get("data", [])
                 
-                if response_data.get("error"):
-                    st.error(f"❌ Error: {response_data['error']}")
-                    # If high confidence query failed, show SQL for debugging
-                    if response_data.get("sql"):
-                        st.markdown("### SQL (for debugging):")
-                        st.code(response_data["sql"])
-                        st.session_state.current_generated_sql = response_data["sql"]
-                        st.session_state.mode = "bad"  # Allow user to fix it
-                elif response_data.get("data"):
-                    # Show results directly
-                    columns = response_data.get("columns", [])
-                    data = response_data.get("data", [])
+                if data:
+                    df = pd.DataFrame(data, columns=columns)
+                    st.markdown("### Results:")
+                    st.dataframe(df)
+                    st.success("✅ Query executed successfully!")
+                    
+                    # Store results for potential feedback
+                    st.session_state.query_results = {"columns": columns, "data": data}
+                    st.session_state.query_executed = True
+                    st.session_state.execution_successful = True
+                else:
+                    st.warning("No results found.")
+                    st.session_state.query_executed = True
+                    st.session_state.execution_successful = True
+            else:
+                st.warning("No data returned from query.")
+                
+        else:
+            # LOW CONFIDENCE: Show SQL for review (current behavior)
+            generated_sql = response_data.get("sql", "")
+            st.session_state.current_generated_sql = generated_sql
+            
+            st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (Low Confidence - Please Review)")
+            
+            st.markdown("### Generated SQL:")
+            st.code(generated_sql)
+            
+            # Execute SQL button for low confidence queries - THIS IS FAST NOW
+            if st.button("🔍 Execute SQL"):
+                with st.spinner("Executing SQL..."):
+                    result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
+                if result.status_code == 200:
+                    response_json = result.json()
+                    columns = response_json.get("columns", [])
+                    data = response_json.get("data", [])
                     
                     if data:
                         df = pd.DataFrame(data, columns=columns)
-                        st.markdown("### Results:")
+                        st.markdown("### Query Results:")
                         st.dataframe(df)
-                        st.success("✅ Query executed successfully!")
-                        
-                        # Store results for potential feedback
                         st.session_state.query_results = {"columns": columns, "data": data}
-                        st.session_state.query_executed = True
-                        st.session_state.execution_successful = True
                     else:
                         st.warning("No results found.")
-                        st.session_state.query_executed = True
-                        st.session_state.execution_successful = True
-                else:
-                    st.warning("No data returned from query.")
                     
-            else:
-                # LOW CONFIDENCE: Show SQL for review (current behavior)
-                generated_sql = response_data.get("sql", "")
-                st.session_state.current_generated_sql = generated_sql
-                
-                st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (Low Confidence - Please Review)")
-                
-                st.markdown("### Generated SQL:")
-                st.code(generated_sql)
-                
-                # Execute SQL button for low confidence queries
-                if st.button("🔍 Execute SQL"):
-                    result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
-                    if result.status_code == 200:
-                        response_json = result.json()
-                        columns = response_json.get("columns", [])
-                        data = response_json.get("data", [])
-                        
-                        if data:
-                            df = pd.DataFrame(data, columns=columns)
-                            st.markdown("### Query Results:")
-                            st.dataframe(df)
-                            st.session_state.query_results = {"columns": columns, "data": data}
-                        else:
-                            st.warning("No results found.")
-                        
-                        st.session_state.query_executed = True
-                        st.session_state.execution_successful = True
-                        st.success("✅ Query executed successfully!")
-                    else:
-                        st.error(f"❌ SQL Execution failed: {result.text}")
-                        st.session_state.query_executed = True
-                        st.session_state.execution_successful = False
-        else:
-            st.error("Failed to process query")
-            confidence = "low"
-            sql_source = "error"
+                    st.session_state.query_executed = True
+                    st.session_state.execution_successful = True
+                    st.success("✅ Query executed successfully!")
+                else:
+                    st.error(f"❌ SQL Execution failed: {result.text}")
+                    st.session_state.query_executed = True
+                    st.session_state.execution_successful = False
 
         # Show feedback buttons after query execution or for high confidence results
         show_feedback = (
@@ -274,14 +291,15 @@ if st.session_state.page == "home":
             with col1:
                 if st.button("👍 Good Query"):
                     if st.session_state.execution_successful or confidence == "high":
-                        # Only save good feedback if SQL was generated by Ollama
+                        # Only save good feedback if SQL was generated by Ollama - THIS IS FAST NOW
                         if sql_source == "ollama_generated":
-                            feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
-                                "question": st.session_state.current_nl_query,
-                                "generated_sql": st.session_state.current_generated_sql,
-                                "corrected_sql": st.session_state.current_generated_sql,  # Same as generated for good feedback
-                                "feedback": "good"
-                            })
+                            with st.spinner("Saving feedback..."):
+                                feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
+                                    "question": st.session_state.current_nl_query,
+                                    "generated_sql": st.session_state.current_generated_sql,
+                                    "corrected_sql": st.session_state.current_generated_sql,
+                                    "feedback": "good"
+                                })
                             
                             if feedback_response.status_code == 200:
                                 response_msg = feedback_response.json().get("message", "Good feedback saved!")
@@ -304,6 +322,8 @@ if st.session_state.page == "home":
                         st.session_state.execution_successful = False
                         st.session_state.feedback_saved = False
                         st.session_state.query_results = None
+                        st.session_state.ai_response_data = None
+                        st.session_state.last_processed_query = ""
                     else:
                         st.warning("⚠️ Cannot mark as good - the query failed to execute properly.")
             
@@ -317,7 +337,7 @@ if st.session_state.page == "home":
                         st.session_state.edited_sql = st.session_state.current_generated_sql
                         st.session_state.feedback_saved = False
 
-        # Bad feedback handling
+        # Bad feedback handling - ALL THESE OPERATIONS ARE NOW FAST
         if st.session_state.mode == "bad":
             st.markdown("### 🔧 Edit the SQL Query:")
             st.session_state.edited_sql = st.text_area(
@@ -331,7 +351,8 @@ if st.session_state.page == "home":
             with col3:
                 if st.button("🔍 Test Edited SQL"):
                     if st.session_state.edited_sql.strip():
-                        result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.edited_sql})
+                        with st.spinner("Testing edited SQL..."):
+                            result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.edited_sql})
                         if result.status_code == 200:
                             response_json = result.json()
                             columns = response_json.get("columns", [])
@@ -355,13 +376,14 @@ if st.session_state.page == "home":
                 if not st.session_state.feedback_saved:
                     if st.button("💾 Save Bad Feedback"):
                         if st.session_state.edited_sql.strip():
-                            # Always save bad feedback regardless of source
-                            feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
-                                "question": st.session_state.current_nl_query,
-                                "generated_sql": st.session_state.current_generated_sql,
-                                "corrected_sql": st.session_state.edited_sql,
-                                "feedback": "bad"
-                            })
+                            # Always save bad feedback regardless of source - THIS IS FAST NOW
+                            with st.spinner("Saving feedback..."):
+                                feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
+                                    "question": st.session_state.current_nl_query,
+                                    "generated_sql": st.session_state.current_generated_sql,
+                                    "corrected_sql": st.session_state.edited_sql,
+                                    "feedback": "bad"
+                                })
                             
                             if feedback_response.status_code == 200:
                                 response_msg = feedback_response.json().get("message", "Feedback saved!")
@@ -375,6 +397,8 @@ if st.session_state.page == "home":
                                     st.session_state.query_executed = False
                                     st.session_state.execution_successful = False
                                     st.session_state.query_results = None
+                                    st.session_state.ai_response_data = None
+                                    st.session_state.last_processed_query = ""
                                     st.rerun()
                             else:
                                 st.error("❌ Failed to save feedback")
@@ -388,6 +412,8 @@ if st.session_state.page == "home":
                         st.session_state.query_executed = False
                         st.session_state.execution_successful = False
                         st.session_state.query_results = None
+                        st.session_state.ai_response_data = None
+                        st.session_state.last_processed_query = ""
                         st.rerun()
 
             # Show comparison for transparency

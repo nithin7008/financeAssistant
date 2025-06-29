@@ -94,5 +94,13 @@
     "feedback": "bad",
     "id": "feedback_11",
     "timestamp": "2025-06-29T20:27:10.995117"
+  },
+  {
+    "question": "What is my total credit card debt, total crypto and total stocks",
+    "generated_sql": "SELECT\n  SUM(CASE WHEN aws.type = 'credit' THEN aws.balance ELSE 0 END) as total_credit_card_debt,\n  SUM(CASE WHEN aws.type = 'crypto' THEN aws.balance ELSE 0 END) as total_crypto_value,\n  SUM(CASE WHEN aws.type = 'stocks' THEN aws.balance ELSE 0 END) as total_investments\nFROM account_weekly_snapshot aws\nWHERE aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT\n  SUM(CASE WHEN aws.type = 'credit' THEN aws.balance ELSE 0 END) as total_credit_card_debt,\n  SUM(CASE WHEN aws.type = 'crypto' THEN aws.balance ELSE 0 END) as total_crypto_value,\n  SUM(CASE WHEN aws.type = 'stocks' THEN aws.balance ELSE 0 END) as total_investments\nFROM account_weekly_snapshot aws\nWHERE aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "feedback": "good",
+    "id": "feedback_12",
+    "timestamp": "2025-06-29T20:32:40.952136"
   }
 ]
