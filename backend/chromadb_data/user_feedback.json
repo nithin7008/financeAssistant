@@ -32,14 +32,6 @@
     "timestamp": "2025-06-22T20:49:13.072693"
   },
   {
-    "question": "How much do I have in my 401K?",
-    "generated_sql": "SELECT SUM(balance) as total_401K FROM account_weekly_snapshot WHERE type = 'stocks' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot);",
-    "corrected_sql": "SELECT SUM(balance) as total_401K FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K' and last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K');",
-    "feedback": "bad",
-    "id": "feedback_4",
-    "timestamp": "2025-06-22T21:01:33.339348"
-  },
-  {
     "question": "what is the total payment due on my credit card accounts",
     "generated_sql": "SELECT SUM(cc.payment_due) as total_credit_card_payments\nFROM accounts a1\nJOIN account_weekly_snapshot cc ON a1.bank = cc.bank AND a1.type = cc.type\nWHERE cc.type = 'credit'\nAND cc.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot c2 WHERE c2.bank = a1.bank AND c2.type = a1.type);",
     "corrected_sql": "SELECT SUM(cc.payment_due) as total_credit_card_payments\nFROM accounts a1\nJOIN account_weekly_snapshot cc ON a1.bank = cc.bank AND a1.type = cc.type\nWHERE cc.type = 'credit'\nAND cc.last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot c2 WHERE c2.bank = a1.bank AND c2.type = a1.type);",
@@ -86,5 +78,13 @@
     "feedback": "good",
     "id": "feedback_10",
     "timestamp": "2025-06-23T12:17:11.545575"
+  },
+  {
+    "question": "How much do I have in my 401K?",
+    "generated_sql": "SELECT SUM(balance) as total_401k_balance FROM account_weekly_snapshot a1 WHERE type = 'stocks' AND aws.bank LIKE '401%' AND last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = a1.bank AND a2.type = a1.type);",
+    "corrected_sql": "SELECT SUM(balance) as total_401K FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K' and last_updated_date = (SELECT MAX(last_updated_date) FROM account_weekly_snapshot WHERE type = 'stocks' AND bank = '401K');",
+    "feedback": "bad",
+    "id": "feedback_10",
+    "timestamp": "2025-06-27T20:24:37.391802"
   }
 ]
