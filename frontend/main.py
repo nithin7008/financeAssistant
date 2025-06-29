@@ -131,6 +131,7 @@ render_log_level_toggle()
 
 # --- HOME PAGE ---
 if st.session_state.page == "home":
+    # Initialize session state variables
     if "mode" not in st.session_state:
         st.session_state.mode = "input"
     if "edited_sql" not in st.session_state:
@@ -147,6 +148,10 @@ if st.session_state.page == "home":
         st.session_state.query_executed = False
     if "execution_successful" not in st.session_state:
         st.session_state.execution_successful = False
+    if "confidence" not in st.session_state:
+        st.session_state.confidence = "low"
+    if "query_results" not in st.session_state:
+        st.session_state.query_results = None
 
     nl_query = st.text_input("Ask a question about your finances:")
     
@@ -154,83 +159,128 @@ if st.session_state.page == "home":
         # Store current query for feedback purposes
         st.session_state.current_nl_query = nl_query
         
-        response = requests.post(f"{BACKEND_URL}/query", json={"question": nl_query})
+        response = requests.post(f"{BACKEND_URL}/smart_query", json={"question": nl_query})
+        
         if response.status_code == 200:
             response_data = response.json()
-            generated_sql = response_data.get("sql", "")
+            confidence = response_data.get("confidence", "low")
             sql_source = response_data.get("source", "unknown")
             
             # Store for feedback purposes
-            st.session_state.current_generated_sql = generated_sql
+            st.session_state.confidence = confidence
             st.session_state.sql_source = sql_source
             
-            st.markdown("### Generated SQL:")
-            st.code(generated_sql)
-            
-            # Show source information for transparency
+            # Source information
             source_emoji = {
                 "ollama_generated": "🤖",
-                "good_feedback": "✅", 
+                "good_feedback": "✅",
                 "bad_feedback_corrected": "🔧",
                 "query_examples": "📚",
-                "unknown": "❓"
+                "unknown": "❓",
+                "error": "❌"
             }
             source_description = {
                 "ollama_generated": "AI Generated",
                 "good_feedback": "From Good Feedback",
                 "bad_feedback_corrected": "From Corrected Feedback", 
                 "query_examples": "From Examples",
-                "unknown": "Unknown Source"
+                "unknown": "Unknown Source",
+                "error": "Error Occurred"
             }
             
-            st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')}")
-            
-        else:
-            st.error("Failed to generate SQL")
-            generated_sql = ""
-            sql_source = "unknown"
-
-        # Execute SQL button
-        if st.button("🔍 Execute SQL"):
-            result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
-            if result.status_code == 200:
-                response_json = result.json()
-                columns = response_json.get("columns", [])
-                data = response_json.get("data", [])
+            if confidence == "high":
+                # HIGH CONFIDENCE: Show results directly, no SQL
+                st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (High Confidence)")
                 
-                if data:
-                    df = pd.DataFrame(data, columns=columns)
-                    st.markdown("### Query Results:")
-                    st.dataframe(df)
+                if response_data.get("error"):
+                    st.error(f"❌ Error: {response_data['error']}")
+                    # If high confidence query failed, show SQL for debugging
+                    if response_data.get("sql"):
+                        st.markdown("### SQL (for debugging):")
+                        st.code(response_data["sql"])
+                        st.session_state.current_generated_sql = response_data["sql"]
+                        st.session_state.mode = "bad"  # Allow user to fix it
+                elif response_data.get("data"):
+                    # Show results directly
+                    columns = response_data.get("columns", [])
+                    data = response_data.get("data", [])
+                    
+                    if data:
+                        df = pd.DataFrame(data, columns=columns)
+                        st.markdown("### Results:")
+                        st.dataframe(df)
+                        st.success("✅ Query executed successfully!")
+                        
+                        # Store results for potential feedback
+                        st.session_state.query_results = {"columns": columns, "data": data}
+                        st.session_state.query_executed = True
+                        st.session_state.execution_successful = True
+                    else:
+                        st.warning("No results found.")
+                        st.session_state.query_executed = True
+                        st.session_state.execution_successful = True
                 else:
-                    st.warning("No results found.")
-                
-                st.session_state.query_executed = True
-                st.session_state.execution_successful = True
-                st.success("✅ Query executed successfully!")
-                
+                    st.warning("No data returned from query.")
+                    
             else:
-                st.error(f"❌ SQL Execution failed: {result.text}")
-                st.session_state.query_executed = True
-                st.session_state.execution_successful = False
+                # LOW CONFIDENCE: Show SQL for review (current behavior)
+                generated_sql = response_data.get("sql", "")
+                st.session_state.current_generated_sql = generated_sql
+                
+                st.info(f"{source_emoji.get(sql_source, '❓')} **Source:** {source_description.get(sql_source, 'Unknown')} (Low Confidence - Please Review)")
+                
+                st.markdown("### Generated SQL:")
+                st.code(generated_sql)
+                
+                # Execute SQL button for low confidence queries
+                if st.button("🔍 Execute SQL"):
+                    result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": generated_sql})
+                    if result.status_code == 200:
+                        response_json = result.json()
+                        columns = response_json.get("columns", [])
+                        data = response_json.get("data", [])
+                        
+                        if data:
+                            df = pd.DataFrame(data, columns=columns)
+                            st.markdown("### Query Results:")
+                            st.dataframe(df)
+                            st.session_state.query_results = {"columns": columns, "data": data}
+                        else:
+                            st.warning("No results found.")
+                        
+                        st.session_state.query_executed = True
+                        st.session_state.execution_successful = True
+                        st.success("✅ Query executed successfully!")
+                    else:
+                        st.error(f"❌ SQL Execution failed: {result.text}")
+                        st.session_state.query_executed = True
+                        st.session_state.execution_successful = False
+        else:
+            st.error("Failed to process query")
+            confidence = "low"
+            sql_source = "error"
 
-        # Show feedback buttons only after execution
-        if st.session_state.query_executed:
+        # Show feedback buttons after query execution or for high confidence results
+        show_feedback = (
+            (confidence == "high" and st.session_state.get("query_results")) or 
+            st.session_state.query_executed
+        )
+        
+        if show_feedback:
             st.markdown("### 📝 How was this query?")
             
             col1, col2 = st.columns(2)
             
             with col1:
                 if st.button("👍 Good Query"):
-                    if st.session_state.execution_successful:
+                    if st.session_state.execution_successful or confidence == "high":
                         # Only save good feedback if SQL was generated by Ollama
                         if sql_source == "ollama_generated":
                             feedback_response = requests.post(f"{BACKEND_URL}/feedback", json={
                                 "question": st.session_state.current_nl_query,
                                 "generated_sql": st.session_state.current_generated_sql,
                                 "corrected_sql": st.session_state.current_generated_sql,  # Same as generated for good feedback
-                                "feedback": "good",
-                                "source": sql_source
+                                "feedback": "good"
                             })
                             
                             if feedback_response.status_code == 200:
@@ -242,7 +292,7 @@ if st.session_state.page == "home":
                             # Don't save good feedback for retrieved queries
                             source_msg = {
                                 "good_feedback": "already learned from this pattern",
-                                "bad_feedback_corrected": "already corrected", 
+                                "bad_feedback_corrected": "already corrected",
                                 "query_examples": "from examples collection",
                                 "unknown": "unknown source"
                             }
@@ -253,20 +303,25 @@ if st.session_state.page == "home":
                         st.session_state.query_executed = False
                         st.session_state.execution_successful = False
                         st.session_state.feedback_saved = False
+                        st.session_state.query_results = None
                     else:
                         st.warning("⚠️ Cannot mark as good - the query failed to execute properly.")
-
+            
             with col2:
                 if st.button("👎 Bad Query"):
-                    st.session_state.mode = "bad"
-                    st.session_state.edited_sql = generated_sql
-                    st.session_state.feedback_saved = False
+                    # For high confidence queries that failed, we might not have the SQL
+                    if not st.session_state.current_generated_sql and confidence == "high":
+                        st.error("Cannot provide feedback - SQL not available for editing")
+                    else:
+                        st.session_state.mode = "bad"
+                        st.session_state.edited_sql = st.session_state.current_generated_sql
+                        st.session_state.feedback_saved = False
 
         # Bad feedback handling
         if st.session_state.mode == "bad":
             st.markdown("### 🔧 Edit the SQL Query:")
             st.session_state.edited_sql = st.text_area(
-                "Edit SQL:", 
+                "Edit SQL:",
                 value=st.session_state.edited_sql,
                 height=150
             )
@@ -295,7 +350,7 @@ if st.session_state.page == "home":
                             st.error(f"❌ SQL Execution failed: {result.text}")
                     else:
                         st.warning("Please enter some SQL to test.")
-
+            
             with col4:
                 if not st.session_state.feedback_saved:
                     if st.button("💾 Save Bad Feedback"):
@@ -305,8 +360,7 @@ if st.session_state.page == "home":
                                 "question": st.session_state.current_nl_query,
                                 "generated_sql": st.session_state.current_generated_sql,
                                 "corrected_sql": st.session_state.edited_sql,
-                                "feedback": "bad",
-                                "source": st.session_state.sql_source
+                                "feedback": "bad"
                             })
                             
                             if feedback_response.status_code == 200:
@@ -320,6 +374,7 @@ if st.session_state.page == "home":
                                     st.session_state.feedback_saved = False
                                     st.session_state.query_executed = False
                                     st.session_state.execution_successful = False
+                                    st.session_state.query_results = None
                                     st.rerun()
                             else:
                                 st.error("❌ Failed to save feedback")
@@ -332,6 +387,7 @@ if st.session_state.page == "home":
                         st.session_state.feedback_saved = False
                         st.session_state.query_executed = False
                         st.session_state.execution_successful = False
+                        st.session_state.query_results = None
                         st.rerun()
 
             # Show comparison for transparency
@@ -347,33 +403,39 @@ if st.session_state.page == "home":
                     st.markdown("**Your Corrected SQL:**")
                     st.code(st.session_state.edited_sql, language="sql")
 
+        # Add a toggle for advanced users to see SQL even for high confidence queries
+        if confidence == "high" and st.session_state.get("query_results"):
+            with st.expander("🔍 Show SQL (Advanced)"):
+                if st.session_state.current_generated_sql:
+                    st.code(st.session_state.current_generated_sql, language="sql")
+                else:
+                    st.info("SQL not available for this high-confidence query")
 
 elif st.session_state.page == "admin":
     st.header("📊 Weekly Snapshot Editor")
-
+    
     # Load existing snapshot file
     snapshot_df = pd.read_excel("db/account_weekly_snapshot.xlsx")
     snapshot_df.columns = snapshot_df.columns.str.strip().str.lower()
     snapshot_df = snapshot_df.sort_values(by=["type", "bank"])
-
+    
     # Get unique (bank, type) pairs
     bank_type_pairs = list(snapshot_df[["bank", "type"]].drop_duplicates().itertuples(index=False, name=None))
-
+    
     st.markdown("### Add or Update Weekly Snapshot")
-
+    
     # Initialize fixed timestamp for session if not set
     if "fixed_last_updated" not in st.session_state:
         st.session_state.fixed_last_updated = datetime.now()
-
+    
     fixed_timestamp = st.session_state.fixed_last_updated
-
+    
     # Display timestamp and provide reset button
     st.write(f"Last updated timestamp for this session: {fixed_timestamp.strftime('%Y-%m-%d %H:%M:%S')}")
-
     if st.button("Reset Timestamp"):
         st.session_state.fixed_last_updated = datetime.now()
-        st.experimental_rerun()
-
+        st.rerun()
+    
     # Create editable dataframe with columns and pre-filled bank/type from pairs
     editable_df = pd.DataFrame({
         "bank": [bt[0] for bt in bank_type_pairs],
@@ -382,7 +444,7 @@ elif st.session_state.page == "admin":
         "payment_due": [None] * len(bank_type_pairs),
         "last_updated_date": [fixed_timestamp] * len(bank_type_pairs),
     })
-
+    
     edited_rows = st.data_editor(
         editable_df,
         num_rows="dynamic",
@@ -390,15 +452,16 @@ elif st.session_state.page == "admin":
         use_container_width=True,
         key="weekly_snapshot_editor"
     )
-
+    
     if st.button("📥 Submit Snapshot Data"):
         try:
             new_rows = pd.DataFrame(edited_rows)
             new_rows = new_rows.dropna(subset=["balance", "payment_due"], how="all")
+            
             if not new_rows.empty:
                 updated_df = pd.concat([snapshot_df, new_rows], ignore_index=True)
                 updated_df.to_excel("db/account_weekly_snapshot.xlsx", index=False)
-
+                
                 # Call backend API to reload snapshots into DB
                 reload_resp = requests.post(f"{BACKEND_URL}/reload_snapshots")
                 if reload_resp.status_code == 200:
@@ -413,26 +476,75 @@ elif st.session_state.page == "admin":
 # --- DEVELOPER PAGE ---
 elif st.session_state.page == "developer":
     st.header("🧪 Developer Notebook")
+    
+    # Add mode toggle for developer page
+    dev_mode = st.radio(
+        "Developer Mode:",
+        ["SQL Notebook", "Query Testing"],
+        horizontal=True
+    )
+    
+    if dev_mode == "SQL Notebook":
+        col_dev1, col_dev2 = st.columns([2, 3])
+        
+        with col_dev1:
+            st.session_state.notebook_sql = st.text_area("Write SQL to test:", height=150)
+            if st.button("⚙️ Run Notebook SQL"):
+                result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.notebook_sql})
+                if result.status_code == 200:
+                    st.session_state.notebook_result = result.json()
+                else:
+                    st.session_state.notebook_result = {"error": result.text}
+        
+        with col_dev2:
+            if st.session_state.get("notebook_result"):
+                st.markdown("### 📄 Notebook Output")
+                if "data" in st.session_state.notebook_result:
+                    st.dataframe(st.session_state.notebook_result["data"])
+                    if st.session_state.mode == "bad":
+                        if st.button("📋 Use This SQL"):
+                            st.session_state.edited_sql = st.session_state.notebook_sql
+                            st.success("Copied to Edit SQL")
+                else:
+                    st.error(st.session_state.notebook_result.get("error", "Unknown error"))
+    
+    elif dev_mode == "Query Testing":
+        st.markdown("### 🔬 Query Testing Mode")
+        st.info("Compare regular /query vs /smart_query endpoints")
+        
+        test_query = st.text_input("Enter test query:")
+        
+        if test_query:
+            col_test1, col_test2 = st.columns(2)
+            
+            with col_test1:
+                st.markdown("#### Regular /query endpoint")
+                if st.button("Test Regular Query"):
+                    response = requests.post(f"{BACKEND_URL}/query", json={"question": test_query})
+                    if response.status_code == 200:
+                        data = response.json()
+                        st.json(data)
+                        st.code(data.get("sql", ""), language="sql")
+                    else:
+                        st.error(f"Error: {response.text}")
+            
+            with col_test2:
+                st.markdown("#### Smart /smart_query endpoint")
+                if st.button("Test Smart Query"):
+                    response = requests.post(f"{BACKEND_URL}/smart_query", json={"question": test_query})
+                    if response.status_code == 200:
+                        data = response.json()
+                        st.json(data)
+                        
+                        if data.get("confidence") == "high":
+                            st.success("High confidence - would show results directly")
+                            if data.get("data"):
+                                df = pd.DataFrame(data["data"], columns=data.get("columns", []))
+                                st.dataframe(df)
+                        else:
+                            st.warning("Low confidence - would show SQL for review")
+                            if data.get("sql"):
+                                st.code(data["sql"], language="sql")
+                    else:
+                        st.error(f"Error: {response.text}")
 
-    col_dev1, col_dev2 = st.columns([2, 3])
-    with col_dev1:
-        st.session_state.notebook_sql = st.text_area("Write SQL to test:", height=150)
-
-        if st.button("⚙️ Run Notebook SQL"):
-            result = requests.post(f"{BACKEND_URL}/execute_sql", json={"sql": st.session_state.notebook_sql})
-            if result.status_code == 200:
-                st.session_state.notebook_result = result.json()
-            else:
-                st.session_state.notebook_result = {"error": result.text}
-
-    with col_dev2:
-        if st.session_state.get("notebook_result"):
-            st.markdown("### 📄 Notebook Output")
-            if "data" in st.session_state.notebook_result:
-                st.dataframe(st.session_state.notebook_result["data"])
-                if st.session_state.mode == "bad":
-                    if st.button("📋 Use This SQL"):
-                        st.session_state.edited_sql = st.session_state.notebook_sql
-                        st.success("Copied to Edit SQL")
-            else:
-                st.error(st.session_state.notebook_result.get("error", "Unknown error"))

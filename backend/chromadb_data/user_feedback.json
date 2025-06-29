@@ -86,5 +86,13 @@
     "feedback": "bad",
     "id": "feedback_10",
     "timestamp": "2025-06-27T20:24:37.391802"
+  },
+  {
+    "question": "What is my total credit card debt and total checking account balance",
+    "generated_sql": "SELECT SUM(aws.balance) as total_credit_card_debt, SUM(aws.balance) as total_checking_balance\nFROM account_weekly_snapshot aws\nWHERE aws.type IN ('credit') OR aws.type = 'checking'\nAND aws.last_updated_date = (SELECT MAX(a2.last_updated_date) FROM account_weekly_snapshot a2 WHERE a2.bank = aws.bank AND a2.type = aws.type);",
+    "corrected_sql": "SELECT\n  SUM(CASE WHEN aws.type = 'credit' THEN aws.balance ELSE 0 END) AS total_credit_card_debt,\n  SUM(CASE WHEN aws.type = 'checking' THEN aws.balance ELSE 0 END) AS total_checking_balance\nFROM account_weekly_snapshot aws\nINNER JOIN (\n  SELECT bank, type, MAX(last_updated_date) AS max_date\n  FROM account_weekly_snapshot\n  GROUP BY bank, type\n) latest ON aws.bank = latest.bank\n         AND aws.type = latest.type\n         AND aws.last_updated_date = latest.max_date;\n",
+    "feedback": "bad",
+    "id": "feedback_11",
+    "timestamp": "2025-06-29T20:27:10.995117"
   }
 ]

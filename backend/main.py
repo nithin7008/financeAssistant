@@ -180,14 +180,31 @@ def load_prompt_template(template_name):
 class QueryRequest(BaseModel):
     question: str
 
+class SmartQueryRequest(BaseModel):
+    question: str
 
-@app.post("/query")
+class QueryResponse(BaseModel):
+    sql: str
+    source: str
+    confidence: str
+
+class SmartQueryResponse(BaseModel):
+    question: str
+    source: str
+    confidence: str
+    sql: str = None
+    columns: list = None
+    data: list = None
+    error: str = None
+
+@app.post("/query", response_model=QueryResponse)
 async def query_to_sql(request: QueryRequest):
     nl_query = request.question
     logger.info(f"Processing query: '{nl_query}'")
     
     # Track the source of the SQL for feedback storage decisions
     sql_source = "unknown"
+    confidence = "low"  # Default to low confidence
     
     try:
         # Get user_feedback collection - handle embedding function gracefully
@@ -234,7 +251,8 @@ async def query_to_sql(request: QueryRequest):
                         logger.info("SOURCE: GOOD_FEEDBACK - Returning proven working SQL")
                         logger.debug(f"Good SQL: {metadata.get('generated_sql')}")
                         sql_source = "good_feedback"
-                        return {"sql": metadata["generated_sql"], "source": sql_source}
+                        confidence = "high"
+                        return QueryResponse(sql=metadata["generated_sql"], source=sql_source, confidence=confidence)
                     else:
                         logger.debug(f"Good feedback not similar enough (distance: {distance}, threshold: {good_threshold})")
                 else:
@@ -279,7 +297,8 @@ async def query_to_sql(request: QueryRequest):
                         logger.info("SOURCE: BAD_FEEDBACK_CORRECTED - Returning corrected SQL from user feedback")
                         logger.debug(f"Corrected SQL: {metadata.get('corrected_sql')}")
                         sql_source = "bad_feedback_corrected"
-                        return {"sql": metadata["corrected_sql"], "source": sql_source}
+                        confidence = "high"
+                        return QueryResponse(sql=metadata["corrected_sql"], source=sql_source, confidence=confidence)
                     else:
                         if not metadata.get("corrected_sql"):
                             logger.debug(f"Skipping bad feedback - missing corrected_sql")
@@ -327,7 +346,8 @@ async def query_to_sql(request: QueryRequest):
                     logger.info("SOURCE: QUERY_EXAMPLES - Returning SQL from examples collection")
                     logger.debug(f"Example SQL: {example_metadata['sql']}")
                     sql_source = "query_examples"
-                    return {"sql": example_metadata["sql"], "source": sql_source}
+                    confidence = "high"
+                    return QueryResponse(sql=example_metadata["sql"], source=sql_source, confidence=confidence)
                 else:
                     if "sql" not in example_metadata:
                         logger.debug("Example found but no SQL in metadata")
@@ -385,7 +405,6 @@ async def query_to_sql(request: QueryRequest):
         )
         response.raise_for_status()
         full_response = response.json()["response"]
-
         logger.info("SOURCE: OLLAMA - Generated SQL using AI model")
         logger.debug(f"Model Response: {full_response}")
 
@@ -401,15 +420,67 @@ async def query_to_sql(request: QueryRequest):
 
         logger.debug(f"Final SQL: {generated_sql}")
         sql_source = "ollama_generated"
-        return {"sql": generated_sql, "source": sql_source}
+        confidence = "low" 
+        return QueryResponse(sql=generated_sql, source=sql_source, confidence=confidence)
 
     except requests.exceptions.RequestException as req_err:
         logger.error(f"Ollama request error: {req_err}")
         raise HTTPException(status_code=500, detail=f"Ollama request error: {req_err}")
-
     except Exception as e:
         logger.error(f"General error in query_to_sql: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@app.post("/smart_query", response_model=SmartQueryResponse)
+async def smart_query(request: SmartQueryRequest):
+    """
+    Smart query endpoint that:
+    - For high confidence queries: auto-executes and returns results only
+    - For low confidence queries: returns SQL for user review
+    """
+    try:
+        # First get the SQL and confidence from the existing query logic
+        query_result = await query_to_sql(QueryRequest(question=request.question))
+        
+        response = SmartQueryResponse(
+            question=request.question,
+            source=query_result.source,
+            confidence=query_result.confidence
+        )
+        
+        if query_result.confidence == "high":
+            # High confidence: auto-execute and return results
+            logger.info(f"High confidence query - auto-executing SQL from {query_result.source}")
+            try:
+                # Execute the SQL
+                sql_lower = query_result.sql.lower()
+                df = pd.read_sql(sql_lower, engine)
+                df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
+                
+                response.columns = list(df.columns)
+                response.data = df.to_dict(orient="records")
+                logger.info(f"High confidence query executed successfully, returned {len(df)} rows")
+                
+            except Exception as e:
+                logger.error(f"Error executing high confidence SQL: {e}")
+                response.error = f"Error executing query: {str(e)}"
+                # Fall back to showing SQL for user to fix
+                response.sql = query_result.sql
+                response.confidence = "low"
+        else:
+            # Low confidence: return SQL for user review
+            logger.info(f"Low confidence query - returning SQL for user review")
+            response.sql = query_result.sql
+            
+        return response
+        
+    except Exception as e:
+        logger.error(f"Error in smart_query: {e}")
+        return SmartQueryResponse(
+            question=request.question,
+            source="error",
+            confidence="low",
+            error=f"Error processing query: {str(e)}"
+        )
 
 # ---------- Feedback collection ----------
 class FeedbackModel(BaseModel):
